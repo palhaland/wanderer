@@ -262,6 +262,7 @@
   "make-one": "Egin bat!",
   "make-thumbnail": "Egin iruditxoa",
   "map": "Mapa",
+  "map-cluster-zoom-level": "Zoom-maila pistak taldekatzeko (0-22)",
   "map-style": "Maparen estiloa",
   "max-hiking-difficulty": "Mendi ibilaldiaren gehienezko zailtasuna",
   "metric": "Metrikoa",

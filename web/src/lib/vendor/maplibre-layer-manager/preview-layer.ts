@@ -18,7 +18,7 @@ export class PreviewLayer implements BaseLayer {
         }
     };
 
-    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
+    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, minZoom: number = 10, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
 
         this.map = map;
         this.listeners = {
@@ -58,7 +58,7 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview",
                     type: "line",
                     source: "preview",
-                    minzoom: 10,
+                    minzoom: minZoom,
                     paint: {
                         "line-color": ["get", "color"],
                         "line-width": 5,
@@ -68,7 +68,7 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview-start-points",
                     type: "circle",
                     source: "preview-start-points",
-                    minzoom: 10,
+                    minzoom: minZoom,
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": 6,
@@ -80,7 +80,7 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview-direction-carets",
                     type: "symbol",
                     source: "preview",
-                    minzoom: 10,
+                    minzoom: minZoom,
                     layout: {
                         "symbol-placement": "line",
                         "symbol-spacing": [

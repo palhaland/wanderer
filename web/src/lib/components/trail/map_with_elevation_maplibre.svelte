@@ -49,6 +49,7 @@
         mapOptions?: Partial<M.MapOptions> | undefined;
         activeTrail?: number | null;
         clusterTrails?: boolean;
+        clusterMinZoom?: number;
         onsegmentdragend?: (data: {
             segment: number;
             event: M.MapMouseEvent;
@@ -88,6 +89,7 @@
         mapOptions = undefined,
         activeTrail = $bindable(0),
         clusterTrails = false,
+        clusterMinZoom = 10,
         onmarkerdragend,
         onsegmentdragend,
         onsegmentclick,
@@ -392,7 +394,10 @@
         if (!geojson || !map || !map.style) {
             return;
         }
-        layerManager.addLayer("clusters", new ClusterLayer(map, geojson));
+        layerManager.addLayer(
+            "clusters",
+            new ClusterLayer(map, geojson, clusterMinZoom),
+        );
     }
 
     function addPreviewLayer(geojson: FeatureCollection) {
@@ -401,7 +406,7 @@
         }
         layerManager.addLayer(
             "preview",
-            new PreviewLayer(map, geojson, {
+            new PreviewLayer(map, geojson, clusterMinZoom, {
                 preview: {
                     onEnter: (e) => {
                         const trail = trails.find(

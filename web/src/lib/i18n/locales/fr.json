@@ -263,6 +263,7 @@
   "make-one": "Faites-en un !",
   "make-thumbnail": "Créer une miniature",
   "map": "Carte",
+  "map-cluster-zoom-level": "Niveau de zoom pour le groupement des traces (0-22)",
   "map-style": "Style de carte",
   "max-hiking-difficulty": "Difficulté maximale de marche",
   "metric": "Métrique",

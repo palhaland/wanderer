@@ -264,6 +264,7 @@
   "make-one": "Lag en!",
   "make-thumbnail": "Lag miniatyrbilde",
   "map": "Kart",
+  "map-cluster-zoom-level": "Zoomnivå for gruppering av spor (0-22)",
   "map-style": "Kartstil",
   "max-hiking-difficulty": "Maks. vanskelighetsgrad",
   "metric": "Metrisk",

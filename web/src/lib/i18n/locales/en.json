@@ -262,6 +262,7 @@
   "make-one": "Make one!",
   "make-thumbnail": "Make thumbnail",
   "map": "Map",
+  "map-cluster-zoom-level": "Zoom level to start grouping tracks (0-22)",
   "map-style": "Map style",
   "max-hiking-difficulty": "Max. Hiking Difficulty",
   "metric": "Metric",

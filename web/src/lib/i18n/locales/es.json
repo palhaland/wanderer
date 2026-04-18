@@ -263,6 +263,7 @@
   "make-one": "¡Crea uno!",
   "make-thumbnail": "Generar miniaturas",
   "map": "Mapa",
+  "map-cluster-zoom-level": "Nivel de zoom para agrupar pistas (0-22)",
   "map-style": "Estilo de mapa",
   "max-hiking-difficulty": "Dificultad máxima",
   "metric": "Métrica",

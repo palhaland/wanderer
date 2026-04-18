@@ -262,6 +262,7 @@
   "make-one": "Készítsen egyet!",
   "make-thumbnail": "Készítsen miniatűrképet",
   "map": "Térkép",
+  "map-cluster-zoom-level": "Nagyítási szint a nyomvonalak csoportosításához (0-22)",
   "map-style": "Map style",
   "max-hiking-difficulty": "Max. Hiking Difficulty",
   "metric": "Metrikus",

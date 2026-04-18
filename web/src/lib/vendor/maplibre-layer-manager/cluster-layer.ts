@@ -22,7 +22,7 @@ export class ClusterLayer implements BaseLayer {
         }
     };
 
-    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
+    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, maxZoom: number = 10, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
         this.map = map;
         this.listeners = {
             "clusters": { ...this.listeners["clusters"], ...listeners?.["clusters"] },
@@ -46,7 +46,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "circle",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: 10,
+                    maxzoom: maxZoom,
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": [
@@ -73,7 +73,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "symbol",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: 10,
+                    maxzoom: maxZoom,
                     paint: {
                         "text-color": "#fff",
                     },
@@ -87,7 +87,7 @@ export class ClusterLayer implements BaseLayer {
                     id: "unclustered-point",
                     type: "circle",
                     source: "cluster-trails",
-                    maxzoom: 10,
+                    maxzoom: maxZoom,
                     filter: ["!", ["has", "point_count"]],
                     paint: {
                         "circle-color": "#242734",

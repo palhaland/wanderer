@@ -263,6 +263,7 @@
   "make-one": "Neues erstellen!",
   "make-thumbnail": "Thumbnail festlegen",
   "map": "Karte",
+  "map-cluster-zoom-level": "Zoomstufe für die Gruppierung von Spuren (0-22)",
   "map-style": "Kartenstil",
   "max-hiking-difficulty": "Max. Schwierigkeit der Wanderung",
   "metric": "Metrisch",

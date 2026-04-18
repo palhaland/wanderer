@@ -146,7 +146,8 @@
             southWest,
             filter,
             pagination.page,
-            (map?.getZoom() ?? 0) > MIN_ZOOM,
+            map?.getZoom() ?? 0,
+            settings.behavior?.mapClusterMinZoom ?? 10,
         );
         pagination.totalPages = trailsInBox.totalPages;
         trails = trailsInBox.trails;
@@ -426,7 +427,9 @@
             activeTrail={-1}
             fitBounds="off"
             clusterTrails={true}
+            clusterMinZoom={settings.behavior?.mapClusterMinZoom ?? 10}
             bind:map
+
             bind:this={mapWithElevation}
         ></MapWithElevationMaplibre>
     </div>

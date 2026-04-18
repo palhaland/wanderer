@@ -93,7 +93,7 @@ export async function trails_search_filter(filter: TrailFilter, page: number = 1
 
 }
 
-export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, includePolyline: boolean = true) {
+export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, zoom: number = 11, polylineMinZoom: number = 10) {
     const user = get(currentUser)
 
     let filterText: string = "";
@@ -102,15 +102,31 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         filterText = buildFilterText(user, filter, false);
     }
 
+    const includePolyline = zoom > polylineMinZoom;
+    let distanceFilter = "";
+    if (zoom < 8) {
+        distanceFilter = "distance > 25000";
+    } else if (zoom < 10) {
+        distanceFilter = "distance > 10000";
+    } else if (zoom < 12) {
+        distanceFilter = "distance > 5000";
+    }
+
+    let lonFilter = `max_lon >= ${southWest.lng} AND min_lon <= ${northEast.lng}`;
+    if (southWest.lng > northEast.lng) {
+        lonFilter = `(max_lon >= ${southWest.lng} OR min_lon <= ${northEast.lng})`;
+    }
+
     let r = await fetch("/api/v1/search/trails", {
         method: "POST",
         body: JSON.stringify({
             q: "",
             options: {
                 filter: [
-                    `_geoBoundingBox([${northEast.lat}, ${northEast.lng}], [${southWest.lat}, ${southWest.lng}])`,
-                    filterText
-                ],
+                    `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`,
+                    filterText,
+                    distanceFilter
+                ].filter(f => f !== ""),
                 sort: [`${filter.sort}:${filter.sortOrder == "+" ? "asc" : "desc"}`,],
                 attributesToRetrieve: [...defaultTrailSearchAttributes, ...(includePolyline ? ["polyline"] : [])],
                 hitsPerPage: 500,

@@ -262,6 +262,7 @@
   "make-one": "Faz um!",
   "make-thumbnail": "Faça miniatura",
   "map": "Mapa",
+  "map-cluster-zoom-level": "Nível de zoom para agrupamento de trilhas (0-22)",
   "map-style": "Map style",
   "max-hiking-difficulty": "Max. Hiking Difficulty",
   "metric": "Métrica",
