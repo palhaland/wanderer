@@ -31,11 +31,11 @@
 
     let citySearchQuery: string = "";
 
-    let confirmModal: ConfirmModal;
-    let emailModal: EmailModal;
-    let passwordModal: PasswordModal;
-    let tokenModal: ApiTokenModal;
-    let tokenSuccessModal: ApiTokenSuccessModal;
+    let confirmModal: ConfirmModal | undefined = $state();
+    let emailModal: EmailModal | undefined = $state();
+    let passwordModal: PasswordModal | undefined = $state();
+    let tokenModal: ApiTokenModal | undefined = $state();
+    let tokenSuccessModal: ApiTokenSuccessModal | undefined = $state();
 
     let tokenLoading: boolean = $state(false);
     let rawAPIToken: string | null = $state(null);
@@ -95,7 +95,7 @@
             tokenLoading = true;
             const tokenResponse = await api_tokens_create(token);
             rawAPIToken = tokenResponse.rawToken;
-            tokenSuccessModal.openModal();
+            tokenSuccessModal?.openModal();
             await invalidateAll();
         } catch (e) {
             show_toast({
@@ -132,9 +132,9 @@
         <h4 class="text-xl font-medium">{$_("login-details")}</h4>
         <button
             class="btn-secondary block"
-            onclick={() => emailModal.openModal()}>{$_("change-email")}</button
+            onclick={() => emailModal?.openModal()}>{$_("change-email")}</button
         >
-        <button class="btn-secondary" onclick={() => passwordModal.openModal()}
+        <button class="btn-secondary" onclick={() => passwordModal?.openModal()}
             >{$_("change-password")}</button
         >
         <div>
@@ -142,7 +142,7 @@
                 <h4 class="text-xl font-medium">{$_("api-tokens")}</h4>
                 <Button
                     secondary
-                    onclick={() => tokenModal.openModal()}
+                    onclick={() => tokenModal?.openModal()}
                     loading={tokenLoading}
                     ><i class="fa fa-plus mr-2"></i>
                     {$_("generate-new-token")}</Button
@@ -217,7 +217,7 @@
             <button
                 id="delete-account"
                 class="btn-danger"
-                onclick={() => confirmModal.openModal()}
+                onclick={() => confirmModal?.openModal()}
                 >{$_("delete-account")}</button
             >
         </div>

@@ -93,6 +93,7 @@
                             options.renderText?.({
                                 options: options,
                                 node,
+                                suggestion: null,
                             }),
                         ];
                     },

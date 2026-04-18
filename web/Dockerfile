@@ -42,7 +42,6 @@ RUN npm run build
 
 FROM node:22-alpine
 
-WORKDIR /app/uploads
 WORKDIR /app
 
 COPY --from=download-env /tmp/curl /curl

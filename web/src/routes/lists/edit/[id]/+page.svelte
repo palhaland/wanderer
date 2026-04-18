@@ -51,10 +51,10 @@
     let loading: boolean = $state(false);
 
     let newShares: TrailShare[] = [];
-    let publicList: boolean = $state(data.list?.public);
+    let publicList: boolean = $state(untrack(() => data.list?.public));
 
-    let shareConfirmModal: ConfirmModal;
-    let publishConfirmModal: ConfirmModal;
+    let shareConfirmModal: ConfirmModal | undefined = $state();
+    let publishConfirmModal: ConfirmModal | undefined = $state();
 
     let trailsOnMap: Trail[] = $state([]);
 
@@ -108,10 +108,10 @@
         if (    $formData.public === true && 
                 $formData.expand?.trails?.find(t => !t.public) !== undefined
         ) {
-            publishConfirmModal.openModal();
+            publishConfirmModal?.openModal();
             return false;
         } else if (await findNewTrailShares()) {
-            shareConfirmModal.openModal();
+            shareConfirmModal?.openModal();
             return false;
         }
         return true;
