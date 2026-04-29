@@ -21,7 +21,7 @@ func init() {
 		}
 
 		// Re-index all trails to populate the new bounding box fields
-		const pageSize int64 = 100
+		const pageSize int64 = 50
 		var page int64 = 0
 
 		for {
@@ -38,7 +38,7 @@ func init() {
 			}
 
 			if err := util.IndexTrails(app, trails, client); err != nil {
-				continue
+				return err
 			}
 
 			page++

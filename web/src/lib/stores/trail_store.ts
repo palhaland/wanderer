@@ -102,7 +102,7 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         filterText = buildFilterText(user, filter, false);
     }
 
-    const includePolyline = zoom > polylineMinZoom;
+    const includePolyline = zoom >= polylineMinZoom;
     let distanceFilter = "";
     if (zoom < 8) {
         distanceFilter = "distance > 25000";
