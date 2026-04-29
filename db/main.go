@@ -31,6 +31,7 @@ import (
 
 	_ "pocketbase/migrations"
 	"pocketbase/util"
+	"pocketbase/waypointcluster"
 
 	pub "github.com/go-ap/activitypub"
 	"github.com/microcosm-cc/bluemonday"
@@ -1072,6 +1073,8 @@ func registerRoutes(se *core.ServeEvent, client meilisearch.ServiceManager) {
 		return e.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	se.Router.POST("/waypoint/cluster", waypointcluster.Handler)
+
 	se.Router.POST("/auth/token", func(e *core.RequestEvent) error {
 		var data struct {
 			APIToken string `json:"api_token"`
@@ -1488,6 +1491,10 @@ func bootstrapCategories(app core.App) error {
 		for _, element := range categories {
 			record := core.NewRecord(collection)
 			record.Set("name", element)
+			record.Set("settings", map[string]any{
+				"wp_merge_enabled": true,
+				"wp_merge_radius":  50,
+			})
 			f, _ := filesystem.NewFileFromPath("migrations/initial_data/" + strings.ToLower(element) + ".jpg")
 			record.Set("img", f)
 			err := app.Save(record)
