@@ -117,6 +117,7 @@
     let hoveringTrail: boolean = false;
 
     let mapLoaded: boolean = false;
+    let terrainEnabled: boolean | null = null;
 
     const trailColors = [
         "#3549bb", // blue
@@ -289,6 +290,25 @@
         } else if (drawing && activeTrail !== null && mapLoaded) {
             addCaretLayer(data[activeTrail]);
         }
+    }
+
+    function syncHillshadingVisibility() {
+        if (!map?.getLayer("hillshading")) {
+            terrainEnabled = null;
+            return;
+        }
+
+        const isTerrainEnabled = Boolean(map.getTerrain());
+        if (isTerrainEnabled === terrainEnabled) {
+            return;
+        }
+
+        map.setLayoutProperty(
+            "hillshading",
+            "visibility",
+            isTerrainEnabled ? "visible" : "none",
+        );
+        terrainEnabled = isTerrainEnabled;
     }
 
     export function refreshElevationProfile() {
@@ -903,7 +923,12 @@
                         page.data.settings?.terrain?.hillshading,
                     ),
                 );
+                syncHillshadingVisibility();
             }
+        });
+
+        map.on("render", () => {
+            syncHillshadingVisibility();
         });
 
         map.on("moveend", (e) => {
