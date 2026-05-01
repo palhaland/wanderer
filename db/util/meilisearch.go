@@ -52,34 +52,37 @@ func documentFromTrailRecord(app core.App, r *core.Record, author *core.Record, 
 		domain = author.GetString("domain")
 	}
 
+	diagonal := HaversineDistance(bounds[0], bounds[2], bounds[1], bounds[3])
+
 	document := map[string]any{
-		"id":             r.Id,
-		"author":         author.Id,
-		"author_name":    author.GetString("preferred_username"),
-		"author_avatar":  author.GetString("icon"),
-		"name":           r.GetString("name"),
-		"description":    r.GetString("description"),
-		"location":       r.GetString("location"),
-		"distance":       r.GetFloat("distance"),
-		"elevation_gain": r.GetFloat("elevation_gain"),
-		"elevation_loss": r.GetFloat("elevation_loss"),
-		"duration":       r.GetFloat("duration"),
-		"difficulty":     difficultyToNumber(r.GetString("difficulty")),
-		"category":       category,
-		"completed":      r.GetBool("completed"),
-		"date":           r.GetDateTime("date").Time().Unix(),
-		"created":        r.GetDateTime("created").Time().Unix(),
-		"public":         r.GetBool("public"),
-		"thumbnail":      thumbnail,
-		"gpx":            r.GetString("gpx"),
-		"tags":           tags,
-		"polyline":       polyline,
-		"domain":         domain,
-		"iri":            r.GetString("iri"),
-		"min_lat":        bounds[0],
-		"max_lat":        bounds[1],
-		"min_lon":        bounds[2],
-		"max_lon":        bounds[3],
+		"id":                    r.Id,
+		"author":                author.Id,
+		"author_name":           author.GetString("preferred_username"),
+		"author_avatar":         author.GetString("icon"),
+		"name":                  r.GetString("name"),
+		"description":           r.GetString("description"),
+		"location":              r.GetString("location"),
+		"distance":              r.GetFloat("distance"),
+		"elevation_gain":        r.GetFloat("elevation_gain"),
+		"elevation_loss":        r.GetFloat("elevation_loss"),
+		"duration":              r.GetFloat("duration"),
+		"difficulty":            difficultyToNumber(r.GetString("difficulty")),
+		"category":              category,
+		"completed":             r.GetBool("completed"),
+		"date":                  r.GetDateTime("date").Time().Unix(),
+		"created":               r.GetDateTime("created").Time().Unix(),
+		"public":                r.GetBool("public"),
+		"thumbnail":             thumbnail,
+		"gpx":                   r.GetString("gpx"),
+		"tags":                  tags,
+		"polyline":              polyline,
+		"domain":                domain,
+		"iri":                   r.GetString("iri"),
+		"min_lat":               bounds[0],
+		"max_lat":               bounds[1],
+		"min_lon":               bounds[2],
+		"max_lon":               bounds[3],
+		"bounding_box_diagonal": diagonal,
 		"_geo": map[string]float64{
 			"lat": r.GetFloat("lat"),
 			"lng": r.GetFloat("lon"),
@@ -188,6 +191,25 @@ func getPolyline(app core.App, r *core.Record) (string, [4]float64, error) {
 				}
 				hasPoints = true
 			}
+		}
+	}
+
+	for _, rte := range gpxData.Routes {
+		for _, pt := range rte.Points {
+			coordinates = append(coordinates, []float64{pt.Latitude, pt.Longitude})
+			if pt.Latitude < minLat {
+				minLat = pt.Latitude
+			}
+			if pt.Latitude > maxLat {
+				maxLat = pt.Latitude
+			}
+			if pt.Longitude < minLon {
+				minLon = pt.Longitude
+			}
+			if pt.Longitude > maxLon {
+				maxLon = pt.Longitude
+			}
+			hasPoints = true
 		}
 	}
 

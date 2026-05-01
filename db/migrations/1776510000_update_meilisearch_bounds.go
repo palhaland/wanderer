@@ -14,13 +14,13 @@ func init() {
 
 	m.Register(func(app core.App) error {
 		_, err := client.Index("trails").UpdateFilterableAttributes(&[]any{
-			"_geo", "author", "category", "completed", "date", "difficulty", "distance", "elevation_gain", "elevation_loss", "public", "shares", "tags", "likes", "min_lat", "max_lat", "min_lon", "max_lon",
+			"_geo", "author", "category", "completed", "date", "difficulty", "distance", "elevation_gain", "elevation_loss", "public", "shares", "tags", "likes", "min_lat", "max_lat", "min_lon", "max_lon", "bounding_box_diagonal",
 		})
 		if err != nil {
 			return err
 		}
 
-		// Re-index all trails to populate the new bounding box fields
+		// Re-index all trails to populate the new bounding box and diagonal fields
 		const pageSize int64 = 50
 		var page int64 = 0
 

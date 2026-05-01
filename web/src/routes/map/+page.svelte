@@ -1,6 +1,7 @@
 <script lang="ts">
     import { browser } from "$app/environment";
     import { goto } from "$app/navigation";
+    import { env } from '$env/dynamic/public';
     import { page } from "$app/state";
     import Search, {
         type SearchItem,
@@ -98,19 +99,19 @@
             ],
         });
 
-        const trailItems = r[0].hits.map((t: TrailSearchResult) => ({
+        const trailItems = (r[0]?.hits || []).map((t: TrailSearchResult) => ({
             text: t.name,
             description: `Trail ${t.location.length ? ", " + t.location : ""}`,
             value: `@${t.author_name}${t.domain ? `@${t.domain}` : ""}/${t.id}`,
             icon: "route",
         }));
-        const listItems = r[1].hits.map((t: ListSearchResult) => ({
+        const listItems = (r[1]?.hits || []).map((t: ListSearchResult) => ({
             text: t.name,
             description: `List, ${t.trails} ${$_("trail", { values: { n: t.trails } })}`,
             value: t.id,
             icon: "layer-group",
         }));
-        const cityItems = r[2].hits.map((c: LocationSearchResult) => ({
+        const cityItems = (r[2]?.hits || []).map((c: LocationSearchResult) => ({
             text: c.name,
             description: c.description,
             value: c,
@@ -147,7 +148,7 @@
             filter,
             pagination.page,
             map?.getZoom() ?? 0,
-            settings.behavior?.mapClusterMinZoom ?? 10,
+            settings?.behavior?.mapClusterMinZoom ?? Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12),
         );
         pagination.totalPages = trailsInBox.totalPages;
         trails = trailsInBox.trails;
@@ -427,7 +428,7 @@
             activeTrail={-1}
             fitBounds="off"
             clusterTrails={true}
-            clusterMinZoom={settings.behavior?.mapClusterMinZoom ?? 10}
+            clusterMinZoom={settings?.behavior?.mapClusterMinZoom ?? Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12)}
             bind:map
 
             bind:this={mapWithElevation}

@@ -1574,7 +1574,7 @@ func bootstrapMeilisearchConfig(client meilisearch.ServiceManager) {
 			FilterableAttributes: []string{
 				"_geo", "author", "category", "completed", "date", "difficulty",
 				"distance", "elevation_gain", "elevation_loss", "likes", "public",
-				"shares", "tags", "min_lat", "max_lat", "min_lon", "max_lon",
+				"shares", "tags", "min_lat", "max_lat", "min_lon", "max_lon", "bounding_box_diagonal",
 			},
 			SortableAttributes: []string{
 				"author", "created", "date", "difficulty", "distance",

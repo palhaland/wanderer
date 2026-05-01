@@ -286,8 +286,15 @@ export function fromGeoJSON(geoJson: Feature | FeatureCollection) {
         const properties = feature.properties;
         const type = geometry.type;
         switch (type) {
-            case 'Polygon':
+            case 'Polygon': {
+                var polyTrk = createTrk(properties);
+                geometry.coordinates.forEach(function (ring) {
+                    var trkseg = createTrkSeg(ring);
+                    polyTrk.trkseg!.push(trkseg);
+                });
+                gpx.trk!.push(polyTrk);
                 break;
+            }
             case 'Point': {
                 gpx.wpt!.push(createPt(geometry.coordinates, properties));
                 break;

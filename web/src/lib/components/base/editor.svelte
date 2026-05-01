@@ -94,7 +94,6 @@
                                 suggestion: {...options.suggestion, editor: editor!},
                                 options: options,
                                 node,
-                                suggestion: null,
                             }),
                         ];
                     },
