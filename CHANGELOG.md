@@ -1,5 +1,6 @@
 # Unreleased
 ## Features
+- Tiered map clustering and polyline filtering: The world map now uses zoom-dependent thresholds to manage performance while maintaining transparency. Small trails are automatically clustered at lower zoom levels, while larger routes are shown as detailed polylines. These thresholds and visibility limits are fully configurable via new environment variables (`PUBLIC_MAP_*_ZOOM_THRESHOLD` and `PUBLIC_MAP_*_DIAGONAL_LIMIT`).
 - Geotagged waypoint photos are now grouped into one waypoint when they are within the category's waypoint merge radius. Existing categories are initialized with waypoint merging enabled and a 50m merge radius; set `settings.wp_merge_enabled` to `false` on a category to keep creating one waypoint per photo.
 
 # v0.18.5
