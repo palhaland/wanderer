@@ -540,7 +540,7 @@ export async function searchResultToTrailList(hits: Hits<TrailSearchResult>): Pr
             location: h.location,
             gpx: h.gpx,
             polyline: h.polyline,
-            bounding_box_diagonal: h.bounding_box_diagonal,
+            bounding_box_diagonal: h.bounding_box_diagonal ?? 0,
             domain: h.domain,
             iri: h.iri,
             thumbnail: 0,
