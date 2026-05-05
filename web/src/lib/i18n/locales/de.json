@@ -284,6 +284,7 @@
   "make-one": "Neues erstellen!",
   "make-thumbnail": "Thumbnail festlegen",
   "map": "Karte",
+  "map-cluster-zoom-level": "Zoomstufe für die Gruppierung von Spuren (0-22)",
   "map-style": "Kartenstil",
   "mark-trail-as-completed": "Route als abgeschlossen markieren",
   "mark-trail-as-completed-modal-text": "Möchtest du diese Route als abgeschlossen markieren? Du kannst diesen Status jederzeit wieder ändern.",

@@ -41,9 +41,10 @@ func documentFromTrailRecord(app core.App, r *core.Record, author *core.Record, 
 		category = trailCategory.GetString("name")
 	}
 
-	polyline, err := getPolyline(app, r)
+	polyline, bounds, err := getPolyline(app, r)
 	if err != nil {
 		polyline = ""
+		bounds = [4]float64{r.GetFloat("lat"), r.GetFloat("lat"), r.GetFloat("lon"), r.GetFloat("lon")}
 	}
 
 	domain := ""
@@ -51,30 +52,37 @@ func documentFromTrailRecord(app core.App, r *core.Record, author *core.Record, 
 		domain = author.GetString("domain")
 	}
 
+	diagonal := HaversineDistance(bounds[0], bounds[2], bounds[1], bounds[3])
+
 	document := map[string]any{
-		"id":             r.Id,
-		"author":         author.Id,
-		"author_name":    author.GetString("preferred_username"),
-		"author_avatar":  author.GetString("icon"),
-		"name":           r.GetString("name"),
-		"description":    r.GetString("description"),
-		"location":       r.GetString("location"),
-		"distance":       r.GetFloat("distance"),
-		"elevation_gain": r.GetFloat("elevation_gain"),
-		"elevation_loss": r.GetFloat("elevation_loss"),
-		"duration":       r.GetFloat("duration"),
-		"difficulty":     difficultyToNumber(r.GetString("difficulty")),
-		"category":       category,
-		"completed":      r.GetBool("completed"),
-		"date":           r.GetDateTime("date").Time().Unix(),
-		"created":        r.GetDateTime("created").Time().Unix(),
-		"public":         r.GetBool("public"),
-		"thumbnail":      thumbnail,
-		"gpx":            r.GetString("gpx"),
-		"tags":           tags,
-		"polyline":       polyline,
-		"domain":         domain,
-		"iri":            r.GetString("iri"),
+		"id":                    r.Id,
+		"author":                author.Id,
+		"author_name":           author.GetString("preferred_username"),
+		"author_avatar":         author.GetString("icon"),
+		"name":                  r.GetString("name"),
+		"description":           r.GetString("description"),
+		"location":              r.GetString("location"),
+		"distance":              r.GetFloat("distance"),
+		"elevation_gain":        r.GetFloat("elevation_gain"),
+		"elevation_loss":        r.GetFloat("elevation_loss"),
+		"duration":              r.GetFloat("duration"),
+		"difficulty":            difficultyToNumber(r.GetString("difficulty")),
+		"category":              category,
+		"completed":             r.GetBool("completed"),
+		"date":                  r.GetDateTime("date").Time().Unix(),
+		"created":               r.GetDateTime("created").Time().Unix(),
+		"public":                r.GetBool("public"),
+		"thumbnail":             thumbnail,
+		"gpx":                   r.GetString("gpx"),
+		"tags":                  tags,
+		"polyline":              polyline,
+		"domain":                domain,
+		"iri":                   r.GetString("iri"),
+		"min_lat":               bounds[0],
+		"max_lat":               bounds[1],
+		"min_lon":               bounds[2],
+		"max_lon":               bounds[3],
+		"bounding_box_diagonal": diagonal,
 		"_geo": map[string]float64{
 			"lat": r.GetFloat("lat"),
 			"lng": r.GetFloat("lon"),
@@ -128,44 +136,88 @@ func difficultyToNumber(difficulty string) int32 {
 	return 0
 }
 
-func getPolyline(app core.App, r *core.Record) (string, error) {
+func getPolyline(app core.App, r *core.Record) (string, [4]float64, error) {
+	lat := r.GetFloat("lat")
+	lon := r.GetFloat("lon")
+	defaultBounds := [4]float64{lat, lat, lon, lon}
+
 	gpxPath := r.GetString("gpx")
 	if len(gpxPath) == 0 {
-		return "", nil
+		return "", defaultBounds, nil
 	}
 	avatarKey := r.BaseFilesPath() + "/" + gpxPath
 	fsys, err := app.NewFilesystem()
 	if err != nil {
-		return "", err
+		return "", defaultBounds, err
 	}
 	defer fsys.Close()
 
 	gpxFile, err := fsys.GetReader(avatarKey)
 	if err != nil {
-		return "", err
+		return "", defaultBounds, err
 	}
 	defer gpxFile.Close()
 
 	content := new(bytes.Buffer)
 	_, err = io.Copy(content, gpxFile)
 	if err != nil {
-		return "", err
+		return "", defaultBounds, err
 	}
 	gpxData, err := gpx.Parse(content)
 	if err != nil {
-		return "", err
+		return "", defaultBounds, err
 	}
 
 	gpxData.SimplifyTracks(50)
-	coordinates := make([][]float64, 4)
+	coordinates := make([][]float64, 0)
+	minLat, maxLat, minLon, maxLon := 90.0, -90.0, 180.0, -180.0
+	hasPoints := false
+
 	for _, trk := range gpxData.Tracks {
 		for _, seg := range trk.Segments {
 			for _, pt := range seg.Points {
 				coordinates = append(coordinates, []float64{pt.Latitude, pt.Longitude})
+				if pt.Latitude < minLat {
+					minLat = pt.Latitude
+				}
+				if pt.Latitude > maxLat {
+					maxLat = pt.Latitude
+				}
+				if pt.Longitude < minLon {
+					minLon = pt.Longitude
+				}
+				if pt.Longitude > maxLon {
+					maxLon = pt.Longitude
+				}
+				hasPoints = true
 			}
 		}
 	}
-	return string(polyline.EncodeCoords(coordinates)), nil
+
+	for _, rte := range gpxData.Routes {
+		for _, pt := range rte.Points {
+			coordinates = append(coordinates, []float64{pt.Latitude, pt.Longitude})
+			if pt.Latitude < minLat {
+				minLat = pt.Latitude
+			}
+			if pt.Latitude > maxLat {
+				maxLat = pt.Latitude
+			}
+			if pt.Longitude < minLon {
+				minLon = pt.Longitude
+			}
+			if pt.Longitude > maxLon {
+				maxLon = pt.Longitude
+			}
+			hasPoints = true
+		}
+	}
+
+	if !hasPoints {
+		return "", defaultBounds, nil
+	}
+
+	return string(polyline.EncodeCoords(coordinates)), [4]float64{minLat, maxLat, minLon, maxLon}, nil
 }
 
 func documentFromListRecord(r *core.Record, author *core.Record, includeShares bool) (map[string]any, error) {

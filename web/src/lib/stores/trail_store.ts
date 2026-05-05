@@ -5,6 +5,7 @@ import type { Waypoint } from "$lib/models/waypoint";
 import { APIError } from "$lib/util/api_util";
 import { deepEqual } from "$lib/util/deep_util";
 import { getFileURL, objectToFormData } from "$lib/util/file_util";
+import { env } from '$env/dynamic/public';
 import * as M from "maplibre-gl";
 import type { Hits } from "meilisearch";
 import { type AuthRecord, type ListResult, type RecordModel } from "pocketbase";
@@ -93,7 +94,7 @@ export async function trails_search_filter(filter: TrailFilter, page: number = 1
 
 }
 
-export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, includePolyline: boolean = true) {
+export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, zoom: number = 11, polylineMinZoom: number = 10) {
     const user = get(currentUser)
 
     let filterText: string = "";
@@ -102,27 +103,88 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         filterText = buildFilterText(user, filter, false);
     }
 
-    let r = await fetch("/api/v1/search/trails", {
-        method: "POST",
-        body: JSON.stringify({
-            q: "",
-            options: {
-                filter: [
-                    `_geoBoundingBox([${northEast.lat}, ${northEast.lng}], [${southWest.lat}, ${southWest.lng}])`,
-                    filterText
-                ],
-                sort: [`${filter.sort}:${filter.sortOrder == "+" ? "asc" : "desc"}`,],
-                attributesToRetrieve: [...defaultTrailSearchAttributes, ...(includePolyline ? ["polyline"] : [])],
-                hitsPerPage: 500,
-                page: page
-            }
-        }),
-    });
-    const result: { page: number, totalPages: number, hits: Hits<TrailSearchResult> } = await r.json();
+    const includePolyline = zoom >= polylineMinZoom;
+    const lowZoomDiagonal = Number(env.PUBLIC_MAP_LOW_ZOOM_DIAGONAL_LIMIT || 25000);
+    const mediumZoomDiagonal = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT || 10000);
+    const highZoomDiagonal = Number(env.PUBLIC_MAP_HIGH_ZOOM_DIAGONAL_LIMIT || 5000);
 
-    if (result.hits.length == 0) {
+    const lowZoomThreshold = Number(env.PUBLIC_MAP_LOW_ZOOM_THRESHOLD || 8);
+    const mediumZoomThreshold = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_THRESHOLD || 10);
+    const highZoomThreshold = Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12);
+
+    let diagonalFilter = "";
+    if (zoom < lowZoomThreshold) {
+        diagonalFilter = `bounding_box_diagonal > ${lowZoomDiagonal}`;
+    } else if (zoom < mediumZoomThreshold) {
+        diagonalFilter = `bounding_box_diagonal > ${mediumZoomDiagonal}`;
+    } else if (zoom < highZoomThreshold) {
+        diagonalFilter = `bounding_box_diagonal > ${highZoomDiagonal}`;
+    }
+
+    let lonFilter = `max_lon >= ${southWest.lng} AND min_lon <= ${northEast.lng}`;
+    if (southWest.lng > northEast.lng) {
+        lonFilter = `(max_lon >= ${southWest.lng} OR min_lon <= ${northEast.lng})`;
+    }
+
+    // Base query to fetch all trails in view for accurate clustering
+    const queries: any[] = [
+        {
+            indexUid: "trails",
+            q: "",
+            filter: [
+                `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`,
+                filterText
+            ].filter(f => f !== ""),
+            attributesToRetrieve: defaultTrailSearchAttributes,
+            hitsPerPage: 1000,
+            page: page
+        }
+    ];
+
+    // If we want polylines, add a second query that includes them but is filtered by diagonal
+    // This query is only to retrieve polylines for trails that pass the filter
+    if (includePolyline || diagonalFilter !== "") {
+        queries.push({
+            indexUid: "trails",
+            q: "",
+            filter: [
+                `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`,
+                filterText,
+                diagonalFilter
+            ].filter(f => f !== ""),
+            attributesToRetrieve: ["id", "polyline"],
+            hitsPerPage: 1000,
+            page: 1
+        });
+    }
+
+    let r = await fetch("/api/v1/search/multi", {
+        method: "POST",
+        body: JSON.stringify({ queries }),
+    });
+
+    if (!r.ok) {
+        const response = await r.json();
+        throw new APIError(r.status, response.message, response.detail)
+    }
+
+    const multiResult = await r.json();
+    const result = multiResult.results[0];
+
+    if (!result.hits || result.hits.length == 0) {
         trails = [];
         return { trails: [], ...result }
+    }
+
+    // If we have a second query result, merge the polylines
+    if (multiResult.results.length > 1) {
+        const polylineHits = multiResult.results[1].hits;
+        const polylineMap = new Map(polylineHits.map((h: any) => [h.id, h.polyline]));
+        result.hits.forEach((h: any) => {
+            if (polylineMap.has(h.id)) {
+                h.polyline = polylineMap.get(h.id);
+            }
+        });
     }
 
     const resultTrails: Trail[] = await searchResultToTrailList(result.hits)
@@ -130,8 +192,6 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
     trails = page > 1 ? trails.concat(resultTrails) : resultTrails
 
     return { trails, ...result };
-
-
 }
 
 export async function trails_show(id: string, handle?: string, share?: string, loadGPX?: boolean, f: (url: RequestInfo | URL, config?: RequestInit) => Promise<Response> = fetch) {
@@ -480,6 +540,7 @@ export async function searchResultToTrailList(hits: Hits<TrailSearchResult>): Pr
             location: h.location,
             gpx: h.gpx,
             polyline: h.polyline,
+            bounding_box_diagonal: h.bounding_box_diagonal ?? 0,
             domain: h.domain,
             iri: h.iri,
             thumbnail: 0,

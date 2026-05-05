@@ -1,5 +1,6 @@
 <script lang="ts">
     import { page } from "$app/state";
+    import { env } from '$env/dynamic/public';
     import directionCaret from "$lib/assets/svgs/caret-right-solid.svg";
     import GPX from "$lib/models/gpx/gpx";
     import type { Trail } from "$lib/models/trail";
@@ -49,6 +50,7 @@
         mapOptions?: Partial<M.MapOptions> | undefined;
         activeTrail?: number | null;
         clusterTrails?: boolean;
+        clusterMinZoom?: number;
         onsegmentdragend?: (data: {
             segment: number;
             event: M.MapMouseEvent;
@@ -88,6 +90,7 @@
         mapOptions = undefined,
         activeTrail = $bindable(0),
         clusterTrails = false,
+        clusterMinZoom = 10,
         onmarkerdragend,
         onsegmentdragend,
         onsegmentclick,
@@ -210,6 +213,7 @@
                         type: "Feature",
                         properties: {
                             trail: t.id,
+                            bounding_box_diagonal: t.bounding_box_diagonal,
                         },
                         geometry: {
                             type: "Point",
@@ -412,7 +416,21 @@
         if (!geojson || !map || !map.style) {
             return;
         }
-        layerManager.addLayer("clusters", new ClusterLayer(map, geojson));
+        layerManager.addLayer(
+            "clusters",
+            new ClusterLayer(map, geojson, clusterMinZoom, {
+                thresholds: [
+                    Number(env.PUBLIC_MAP_LOW_ZOOM_THRESHOLD || 8),
+                    Number(env.PUBLIC_MAP_MEDIUM_ZOOM_THRESHOLD || 10),
+                    Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12),
+                ],
+                limits: [
+                    Number(env.PUBLIC_MAP_LOW_ZOOM_DIAGONAL_LIMIT || 25000),
+                    Number(env.PUBLIC_MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT || 10000),
+                    Number(env.PUBLIC_MAP_HIGH_ZOOM_DIAGONAL_LIMIT || 5000),
+                ],
+            }),
+        );
     }
 
     function addPreviewLayer(geojson: FeatureCollection) {
@@ -421,7 +439,7 @@
         }
         layerManager.addLayer(
             "preview",
-            new PreviewLayer(map, geojson, {
+            new PreviewLayer(map, geojson, clusterMinZoom, {
                 preview: {
                     onEnter: (e) => {
                         const trail = trails.find(

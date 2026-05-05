@@ -22,12 +22,16 @@ export class ClusterLayer implements BaseLayer {
         }
     };
 
-    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
+    constructor(map: M.Map, geojson: GeoJSON.FeatureCollection, maxZoom: number = 10, tiers?: { thresholds: number[], limits: number[] }, listeners?: Record<string, { onMouseUp?: (e: MapMouseEvent) => void; onMouseDown?: (e: MapMouseEvent) => void; onEnter?: (e: MapMouseEvent) => void; onLeave?: (e: MapMouseEvent) => void; onMouseMove?: (e: MapMouseEvent) => void; }>) {
         this.map = map;
         this.listeners = {
             "clusters": { ...this.listeners["clusters"], ...listeners?.["clusters"] },
             "unclustered-point": { ...this.listeners["unclustered-point"], ...listeners?.["unclustered-point"] }
         }
+
+        const thresholds = tiers?.thresholds || [8, 10, 12];
+        const limits = tiers?.limits || [25000, 10000, 5000];
+
         this.spec = {
             version: 8,
             name: "clusters",
@@ -38,6 +42,7 @@ export class ClusterLayer implements BaseLayer {
                     data: geojson,
                     cluster: true,
                     clusterRadius: 50,
+                    clusterMaxZoom: maxZoom,
                 }
             },
             layers: [
@@ -46,7 +51,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "circle",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: 10,
+                    maxzoom: maxZoom + 1, // Allow clusters to stay a bit longer if needed
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": [
@@ -73,7 +78,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "symbol",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: 10,
+                    maxzoom: maxZoom + 1,
                     paint: {
                         "text-color": "#fff",
                     },
@@ -87,8 +92,22 @@ export class ClusterLayer implements BaseLayer {
                     id: "unclustered-point",
                     type: "circle",
                     source: "cluster-trails",
-                    maxzoom: 10,
-                    filter: ["!", ["has", "point_count"]],
+                    filter: [
+                        "all",
+                        ["!", ["has", "point_count"]],
+                        [
+                            "<",
+                            ["get", "bounding_box_diagonal"],
+                            [
+                                "step",
+                                ["zoom"],
+                                limits[0],
+                                thresholds[0], limits[1],
+                                thresholds[1], limits[2],
+                                thresholds[2], 0
+                            ]
+                        ]
+                    ],
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": 7,

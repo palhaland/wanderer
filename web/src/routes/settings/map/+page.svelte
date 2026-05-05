@@ -25,20 +25,32 @@
     let allowAutoGeolocate = $state(
         page.data.settings.behavior?.allowAutoGeolocate ?? false,
     );
+    let mapClusterMinZoom = $state(
+        page.data.settings.behavior?.mapClusterMinZoom ?? 10,
+    );
 
-    async function handleAllowAutoGeolocateChange() {
+    $effect(() => {
+        if (settings?.behavior) {
+            allowAutoGeolocate = settings.behavior.allowAutoGeolocate ?? false;
+            mapClusterMinZoom = settings.behavior.mapClusterMinZoom ?? 10;
+        }
+    });
+
+    async function handleBehaviorChange() {
         if (!settings) {
             return;
         }
 
         try {
-            if (!settings.behavior) {
-                settings.behavior = { allowAutoGeolocate: allowAutoGeolocate };
-            } else {
-                settings.behavior.allowAutoGeolocate = allowAutoGeolocate;
-            }
+            const updatedSettings = {
+                ...settings,
+                behavior: {
+                    allowAutoGeolocate: allowAutoGeolocate,
+                    mapClusterMinZoom: Number(mapClusterMinZoom),
+                },
+            };
 
-            await settings_update(settings);
+            await settings_update(updatedSettings);
         } catch (e) {
             show_toast({
                 type: "error",
@@ -166,16 +178,31 @@
                     ></Search>
                 </div>
             {/if}
-            <div
-                class="mt-4 grid gap-4"
-                style="grid-template-columns: 1fr min-content ;"
-            >
-                <p>{$_("allow-auto-geolocate")}</p>
-                <div>
-                    <Toggle
-                        bind:value={allowAutoGeolocate}
-                        onchange={handleAllowAutoGeolocateChange}
-                    ></Toggle>
+            <div class="mt-8 space-y-4">
+                <div
+                    class="grid gap-4 items-center"
+                    style="grid-template-columns: 1fr min-content ;"
+                >
+                    <p>{$_("allow-auto-geolocate")}</p>
+                    <div>
+                        <Toggle
+                            bind:value={allowAutoGeolocate}
+                            onchange={handleBehaviorChange}
+                        ></Toggle>
+                    </div>
+                </div>
+                <div
+                    class="grid gap-4 items-center"
+                    style="grid-template-columns: 1fr 100px ;"
+                >
+                    <p>{$_("map-cluster-zoom-level")}</p>
+                    <div>
+                        <TextField
+                            bind:value={mapClusterMinZoom}
+                            type="number"
+                            onchange={handleBehaviorChange}
+                        ></TextField>
+                    </div>
                 </div>
             </div>
         </div>
