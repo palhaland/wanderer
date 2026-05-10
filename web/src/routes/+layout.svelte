@@ -96,4 +96,6 @@
 <UploadDialog></UploadDialog>
 {@render children?.()}
 
-<Footer></Footer>
+<Footer 
+    class={page.url.pathname.startsWith('/map') || page.url.pathname.startsWith('/lists') ? 'hidden md:grid' : ''}
+></Footer>

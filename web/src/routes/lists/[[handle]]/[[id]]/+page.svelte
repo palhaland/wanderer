@@ -14,6 +14,7 @@
     import ListCard from "$lib/components/list/list_card.svelte";
     import ListPanel from "$lib/components/list/list_panel.svelte";
     import ListShareModal from "$lib/components/list/list_share_modal.svelte";
+    import BottomSheet from "$lib/components/base/bottom_sheet.svelte";
     import MapWithElevationMaplibre from "$lib/components/trail/map_with_elevation_maplibre.svelte";
     import TrailInfoPanel from "$lib/components/trail/trail_info_panel.svelte";
     import { List, type ListFilter } from "$lib/models/list";
@@ -61,6 +62,8 @@
         ),
     );
     let selectedTrail: Trail | null = $state(null);
+
+    let sheetExpanded: boolean = $state(false);
 
     let loading: boolean = $state(true);
     let loadingNextPage: boolean = false;
@@ -115,6 +118,7 @@
             fetch,
         );
         selectedList = fullList;
+        sheetExpanded = true;
         document.getElementById("list-container")?.scrollTo({ top: 0 });
     }
 
@@ -123,6 +127,7 @@
             selectedTrail = null;
         } else if (selectedList) {
             selectedList = null;
+            sheetExpanded = false;
             map?.flyTo({
                 animate: true,
                 zoom: 1,
@@ -143,6 +148,7 @@
             true,
         );
         selectedTrail = fullTrail;
+        sheetExpanded = true;
 
         mapWithElevation?.unHighlightTrail(trail.id!);
         window.scrollTo({ top: 0 });
@@ -240,142 +246,8 @@
 <svelte:head>
     <title>{$_("list", { values: { n: 2 } })} | wanderer</title>
 </svelte:head>
-<main class="grid grid-cols-1 md:grid-cols-[430px_1fr] gap-4 lg:gap-4 md:mx-4">
-    <div
-        class="list-list relative md:mx-auto rounded-xl border border-input-border max-h-full w-full order-1 md:order-none"
-    >
-        <div
-            class="flex gap-x-3 items-center px-3 py-4 bg-background z-50 rounded-xl"
-        >
-            <button
-                aria-label="Back"
-                class="btn-icon"
-                class:btn-disabled={!selectedList}
-                disabled={!selectedList}
-                onclick={back}><i class="fa fa-arrow-left"></i></button
-            >
-            <Search bind:value={filter.q} onupdate={() => updateFilter()}
-            ></Search>
-            <button
-                aria-label="Toggle filter"
-                class="btn-icon"
-                onclick={() => (filterExpanded = !filterExpanded)}
-                ><i class="fa fa-sliders"></i></button
-            >
-            {#if $currentUser}
-                <a
-                    aria-label="New list"
-                    class="btn-primary tooltip"
-                    data-title={$_("new-list")}
-                    href="/lists/edit/new"><i class="fa fa-plus"></i></a
-                >
-            {/if}
-        </div>
-        {#if filterExpanded}
-            <div
-                class="absolute bg-background z-10 shadow-lg border-b border-input-border rounded-b-xl w-full px-14"
-                in:slide
-                out:slide
-            >
-                <p class="text-sm font-medium pb-1">{$_("sort")}</p>
-                <div class="flex items-center gap-2" class:mb-6={!$currentUser}>
-                    <Select
-                        bind:value={filter.sort}
-                        items={sortOptions}
-                        onchange={setSort}
-                    ></Select>
-                    <button
-                        aria-label="Set sort order"
-                        id="sort-order-btn"
-                        class="btn-icon"
-                        class:rotated={filter.sortOrder == "-"}
-                        onclick={() => setSortOrder()}
-                        ><i class="fa fa-arrow-up"></i></button
-                    >
-                </div>
-                {#if $currentUser}
-                    <hr class="my-4 border-separator" />
-
-                    <ActorSearch
-                        onclick={setAuthorFilter}
-                        onclear={clearAuthorFilter}
-                        bind:value={userQuery}
-                        clearAfterSelect={false}
-                        label={$_("author")}
-                    ></ActorSearch>
-                    <div class="flex items-center my-4">
-                        <input
-                            id="public-checkbox"
-                            type="checkbox"
-                            checked={filter.public}
-                            class="w-4 h-4 bg-input-background accent-primary border-input-border focus:ring-input-ring focus:ring-2"
-                            onchange={setPublicFilter}
-                        />
-                        <label for="public-checkbox" class="ms-2 text-sm"
-                            >{$_("public")}</label
-                        >
-                    </div>
-                    <div class="flex items-center my-4">
-                        <input
-                            id="shared-checkbox"
-                            type="checkbox"
-                            checked={filter.shared}
-                            class="w-4 h-4 bg-input-background accent-primary border-input-border focus:ring-input-ring focus:ring-2"
-                            onchange={setSharedFilter}
-                        />
-                        <label for="shared-checkbox" class="ms-2 text-sm"
-                            >{$_("shared")}</label
-                        >
-                    </div>
-                {/if}
-            </div>
-        {/if}
-        <hr class="border-separator" />
-
-        <div
-            id="list-container"
-            class="overflow-y-scroll overflow-x-clip max-h-full"
-            onscroll={onListScroll}
-        >
-            {#if !selectedList}
-                <div class="px-4 mt-2" class:space-y-3={loading}>
-                    {#if loading}
-                        {#each { length: 3 } as _, index}
-                            <SkeletonCard></SkeletonCard>
-                        {/each}
-                    {:else if lists.length == 0}
-                        <EmptyStateSearch width={356}></EmptyStateSearch>
-                    {:else}
-                        {#each lists as item, i}
-                            <div
-                                class="list-list-item"
-                                onclick={() => setCurrentList(item)}
-                                role="presentation"
-                            >
-                                <ListCard list={item}></ListCard>
-                            </div>
-                        {/each}
-                    {/if}
-                </div>
-            {:else if selectedList && !selectedTrail}
-                <ListPanel
-                    list={selectedList}
-                    onmouseenter={(data) => highlightTrail(data.trail)}
-                    onmouseleave={(data) => unHighlightTrail(data.trail)}
-                    onchange={(item) => handleDropdownClick(item)}
-                    onclick={(data) => selectTrail(data.trail)}
-                ></ListPanel>
-            {:else if selectedList && selectedTrail}
-                <TrailInfoPanel
-                    initTrail={selectedTrail}
-                    mode="list"
-                    {markers}
-                    handle={handleFromRecordWithIRI(selectedTrail)}
-                ></TrailInfoPanel>
-            {/if}
-        </div>
-    </div>
-    <div id="trail-map">
+<main class="relative h-[calc(100dvh-100px)] md:h-auto md:grid md:grid-cols-[430px_1fr] md:gap-4 md:mx-4 overflow-hidden md:overflow-visible">
+    <div id="trail-map" class="absolute inset-0 z-0 md:relative md:order-2">
         <MapWithElevationMaplibre
             trails={selectedTrail
                 ? [selectedTrail]
@@ -388,11 +260,177 @@
             fitBounds="animate"
             onselect={(trail) => {
                 selectedTrail = trail;
+                sheetExpanded = true;
             }}
             showInfoPopup={true}
             showTerrain={true}
         ></MapWithElevationMaplibre>
     </div>
+
+    <div class="md:order-1 md:h-auto z-10 pointer-events-none md:pointer-events-auto">
+        <BottomSheet 
+            bind:expanded={sheetExpanded}
+        >
+                {#snippet header()}
+                    <div class="flex items-center justify-between w-full">
+                        <span class="font-semibold text-lg truncate pr-4">
+                            {selectedTrail ? selectedTrail.name : (selectedList ? selectedList.name : $_("lists"))}
+                        </span>
+                        <div class="flex gap-2">
+                            {#if selectedList || selectedTrail}
+                                <button onclick={back} class="btn-icon p-1" aria-label="{$_('back')}">
+                                    <i class="fa fa-arrow-left"></i>
+                                </button>
+                            {/if}
+                        </div>
+                    </div>
+                {/snippet}
+
+                <div
+                    class="list-list relative md:mx-auto rounded-xl md:border md:border-input-border max-h-full w-full"
+                >
+                    <div
+                        class="hidden md:flex gap-x-3 items-center px-3 py-4 bg-background z-50 rounded-xl"
+                    >
+                        <button
+                            aria-label="Back"
+                            class="btn-icon"
+                            class:btn-disabled={!selectedList}
+                            disabled={!selectedList}
+                            onclick={back}><i class="fa fa-arrow-left"></i></button
+                        >
+                        <Search bind:value={filter.q} onupdate={() => updateFilter()}
+                        ></Search>
+                        <button
+                            aria-label="Toggle filter"
+                            class="btn-icon"
+                            onclick={() => (filterExpanded = !filterExpanded)}
+                            ><i class="fa fa-sliders"></i></button
+                        >
+                        {#if $currentUser}
+                            <a
+                                aria-label="New list"
+                                class="btn-primary tooltip"
+                                data-title={$_("new-list")}
+                                href="/lists/edit/new"><i class="fa fa-plus"></i></a
+                            >
+                        {/if}
+                    </div>
+                    
+                    <!-- Mobile Search (Visible when no list selected) -->
+                    {#if !selectedList && !selectedTrail}
+                        <div class="md:hidden px-2 mb-4">
+                            <Search bind:value={filter.q} onupdate={() => updateFilter()}
+                            ></Search>
+                        </div>
+                    {/if}
+
+                    {#if filterExpanded}
+                        <div
+                            class="absolute bg-background z-[110] shadow-lg border-b border-input-border rounded-b-xl w-full px-14"
+                            in:slide
+                            out:slide
+                        >
+                            <p class="text-sm font-medium pb-1">{$_("sort")}</p>
+                            <div class="flex items-center gap-2" class:mb-6={!$currentUser}>
+                                <Select
+                                    bind:value={filter.sort}
+                                    items={sortOptions}
+                                    onchange={setSort}
+                                ></Select>
+                                <button
+                                    aria-label="Set sort order"
+                                    id="sort-order-btn"
+                                    class="btn-icon"
+                                    class:rotated={filter.sortOrder == "-"}
+                                    onclick={() => setSortOrder()}
+                                    ><i class="fa fa-arrow-up"></i></button
+                                >
+                            </div>
+                            {#if $currentUser}
+                                <hr class="my-4 border-separator" />
+
+                                <ActorSearch
+                                    onclick={setAuthorFilter}
+                                    onclear={clearAuthorFilter}
+                                    bind:value={userQuery}
+                                    clearAfterSelect={false}
+                                    label={$_("author")}
+                                ></ActorSearch>
+                                <div class="flex items-center my-4">
+                                    <input
+                                        id="public-checkbox"
+                                        type="checkbox"
+                                        checked={filter.public}
+                                        class="w-4 h-4 bg-input-background accent-primary border-input-border focus:ring-input-ring focus:ring-2"
+                                        onchange={setPublicFilter}
+                                    />
+                                    <label for="public-checkbox" class="ms-2 text-sm"
+                                        >{$_("public")}</label
+                                    >
+                                </div>
+                                <div class="flex items-center my-4">
+                                    <input
+                                        id="shared-checkbox"
+                                        type="checkbox"
+                                        checked={filter.shared}
+                                        class="w-4 h-4 bg-input-background accent-primary border-input-border focus:ring-input-ring focus:ring-2"
+                                        onchange={setSharedFilter}
+                                    />
+                                    <label for="shared-checkbox" class="ms-2 text-sm"
+                                        >{$_("shared")}</label
+                                    >
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
+                    <hr class="hidden md:block border-separator" />
+
+                    <div
+                        id="list-container"
+                        class="overflow-y-auto overflow-x-clip max-h-full"
+                        onscroll={onListScroll}
+                    >
+                        {#if !selectedList}
+                            <div class="px-4 mt-2" class:space-y-3={loading}>
+                                {#if loading}
+                                    {#each { length: 3 } as _, index}
+                                        <SkeletonCard></SkeletonCard>
+                                    {/each}
+                                {:else if lists.length == 0}
+                                    <EmptyStateSearch width={356}></EmptyStateSearch>
+                                {:else}
+                                    {#each lists as item, i}
+                                        <div
+                                            class="list-list-item"
+                                            onclick={() => setCurrentList(item)}
+                                            role="presentation"
+                                        >
+                                            <ListCard list={item}></ListCard>
+                                        </div>
+                                    {/each}
+                                {/if}
+                            </div>
+                        {:else if selectedList && !selectedTrail}
+                            <ListPanel
+                                list={selectedList}
+                                onmouseenter={(data) => highlightTrail(data.trail)}
+                                onmouseleave={(data) => unHighlightTrail(data.trail)}
+                                onchange={(item) => handleDropdownClick(item)}
+                                onclick={(data) => selectTrail(data.trail)}
+                            ></ListPanel>
+                        {:else if selectedList && selectedTrail}
+                            <TrailInfoPanel
+                                initTrail={selectedTrail}
+                                mode="list"
+                                {markers}
+                                handle={handleFromRecordWithIRI(selectedTrail)}
+                            ></TrailInfoPanel>
+                        {/if}
+                    </div>
+                </div>
+            </BottomSheet>
+        </div>
 
     <ConfirmModal
         text={$_("delete-list-confirm")}
@@ -406,6 +444,10 @@
 </main>
 
 <style>
+    #trail-map {
+        height: 100%;
+    }
+
     @media only screen and (min-width: 768px) {
         #trail-map {
             height: calc(100vh - 124px);
@@ -414,5 +456,12 @@
         #list-container {
             height: calc(100vh - 204px);
         }
+    }
+
+    #sort-order-btn {
+        transition: transform 0.5s ease;
+    }
+    :global(.rotated) {
+        transform: rotate(180deg);
     }
 </style>

@@ -6,6 +6,7 @@
     import {
         trail_merge_suggest_auto,
         trail_merge_suggest_manual,
+        type MergeSettings,
         type TrailMergeSuggestCandidate,
     } from "$lib/stores/trail_merge_api";
     import { translateTrailMergeError } from "$lib/stores/trail_merge_i18n";
@@ -314,15 +315,6 @@
         } finally {
             loading = false;
         }
-    }
-
-    export interface MergeSettings {
-        summitLog: boolean;
-        photos: boolean;
-        comments: boolean;
-        delete: boolean;
-        tags: boolean;
-        likes: boolean;
     }
     
     const settings: MergeSettings = $state({
