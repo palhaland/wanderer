@@ -29,8 +29,26 @@ export class ClusterLayer implements BaseLayer {
             "unclustered-point": { ...this.listeners["unclustered-point"], ...listeners?.["unclustered-point"] }
         }
 
-        const thresholds = tiers?.thresholds || [8, 10, 12];
-        const limits = tiers?.limits || [25000, 10000, 5000];
+        const pairs = (tiers?.thresholds || [8, 10, 12]).map((t, i) => ({
+            threshold: t,
+            limit: (tiers?.limits || [25000, 10000, 5000])[i]
+        })).sort((a, b) => a.threshold - b.threshold);
+
+        const thresholds: number[] = [];
+        const limits: number[] = [];
+        let lastT = -1;
+        for (const p of pairs) {
+            if (p.threshold > lastT) {
+                thresholds.push(p.threshold);
+                limits.push(p.limit);
+                lastT = p.threshold;
+            }
+        }
+
+        const stepExpr: any[] = ["step", ["zoom"], limits[0]];
+        for (let i = 0; i < thresholds.length; i++) {
+            stepExpr.push(thresholds[i], limits[i + 1] ?? 0);
+        }
 
         this.spec = {
             version: 8,
@@ -51,7 +69,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "circle",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: maxZoom + 1, // Allow clusters to stay a bit longer if needed
+                    maxzoom: maxZoom,
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": [
@@ -78,7 +96,7 @@ export class ClusterLayer implements BaseLayer {
                     type: "symbol",
                     source: "cluster-trails",
                     filter: ["has", "point_count"],
-                    maxzoom: maxZoom + 1,
+                    maxzoom: maxZoom,
                     paint: {
                         "text-color": "#fff",
                     },
@@ -92,20 +110,14 @@ export class ClusterLayer implements BaseLayer {
                     id: "unclustered-point",
                     type: "circle",
                     source: "cluster-trails",
+                    maxzoom: maxZoom,
                     filter: [
                         "all",
                         ["!", ["has", "point_count"]],
                         [
                             "<",
                             ["get", "bounding_box_diagonal"],
-                            [
-                                "step",
-                                ["zoom"],
-                                limits[0],
-                                thresholds[0], limits[1],
-                                thresholds[1], limits[2],
-                                thresholds[2], 0
-                            ]
+                            stepExpr as any
                         ]
                     ],
                     paint: {

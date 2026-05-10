@@ -4,6 +4,13 @@
     import directionCaret from "$lib/assets/svgs/caret-right-solid.svg";
     import GPX from "$lib/models/gpx/gpx";
     import type { Trail } from "$lib/models/trail";
+    import {
+        MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
+        MAP_LOW_ZOOM_DIAGONAL_LIMIT,
+        MAP_LOW_ZOOM_THRESHOLD,
+        MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
+        MAP_MEDIUM_ZOOM_THRESHOLD,
+    } from "$lib/stores/trail_store";
     import type { Waypoint } from "$lib/models/waypoint";
     import { theme } from "$lib/stores/theme_store";
     import { findStartAndEndPoints } from "$lib/util/geojson_util";
@@ -135,9 +142,14 @@
 
     let clusterPopup: M.Popup | null = null;
 
-    let [data, clusterData, previewData] = $derived(getData(trails));
+    let [gpxDataMap, clusterData, previewData] = $derived(getData(trails));
     $effect(() => {
-        if (data && map && mapLoaded) {
+        // Track dependencies for Svelte 5
+        gpxDataMap;
+        clusterData;
+        previewData;
+
+        if (map && mapLoaded) {
             untrack(() => initMap(map?.loaded() ?? false));
         }
     });
@@ -189,7 +201,11 @@
 
     function getData(
         trails: Trail[],
-    ): [FeatureCollection[], FeatureCollection, FeatureCollection] {
+    ): [
+        Record<string, FeatureCollection>,
+        FeatureCollection,
+        FeatureCollection,
+    ] {
         let clusterData: FeatureCollection = {
             type: "FeatureCollection",
             features: [],
@@ -198,16 +214,30 @@
             type: "FeatureCollection",
             features: [],
         };
-        let r: FeatureCollection[] = [];
+        let gpxDataMap: Record<string, FeatureCollection> = {};
 
-        trails.forEach((t, i) => {
-            if (t.expand?.gpx) {
-                r.push(t.expand.gpx.toGeoJSON());
-            } else if (t.expand?.gpx_data) {
-                r.push(GPX.parse(t.expand.gpx_data).toGeoJSON());
+        trails.forEach((t) => {
+            if (t.id) {
+                let fc: FeatureCollection | null = null;
+                if (t.expand?.gpx) {
+                    fc = t.expand.gpx.toGeoJSON();
+                } else if (t.expand?.gpx_data) {
+                    fc = GPX.parse(t.expand.gpx_data).toGeoJSON();
+                }
+
+                if (fc) {
+                    fc.features.forEach((f) => {
+                        if (f.properties) {
+                            f.properties.bounding_box_diagonal =
+                                t.bounding_box_diagonal;
+                        }
+                    });
+                    gpxDataMap[t.id] = fc;
+                }
             }
+
             if (clusterTrails) {
-                if (t.lat !== null && t.lon !== null) {
+                if (t.lat !== undefined && t.lon !== undefined) {
                     clusterData.features.push({
                         id: t.id,
                         type: "Feature",
@@ -228,6 +258,7 @@
                         type: "Feature",
                         properties: {
                             trail: t.id,
+                            bounding_box_diagonal: t.bounding_box_diagonal,
                             color: trailColors[
                                 hashStringToIndex(
                                     t.id ?? "",
@@ -244,7 +275,7 @@
             }
         });
 
-        return [r, clusterData, previewData];
+        return [gpxDataMap, clusterData, previewData];
     }
 
     function initMap(mapLoaded: boolean) {
@@ -253,15 +284,19 @@
         }
 
         refreshElevationProfile();
-        if (showElevation && data.length && activeTrail !== null) {
+        if (
+            showElevation &&
+            Object.keys(gpxDataMap).length &&
+            activeTrail !== null
+        ) {
             epc?.showProfile();
         } else {
             epc?.hideProfile();
         }
 
-        trails.forEach((t, i) => {
+        trails.forEach((t) => {
             const layerId = t.id!;
-            addTrailLayer(t, layerId, i, data[i]);
+            addTrailLayer(t, layerId, 0, gpxDataMap[layerId]);
         });
         if (clusterTrails) {
             addClusterLayer(clusterData);
@@ -279,18 +314,26 @@
             }
         });
 
-        if (
-            !drawing &&
-            fitBounds !== "off" &&
-            data.some((d) => d.bbox !== undefined)
-        ) {
-            if (activeTrail !== null && trails[activeTrail] && mapLoaded) {
+        if (!drawing && fitBounds !== "off") {
+            const currentBboxes = Object.values(gpxDataMap)
+                .map((d) => d.bbox)
+                .filter((b) => b !== undefined);
+
+            if (
+                activeTrail !== null &&
+                trails[activeTrail] &&
+                mapLoaded &&
+                gpxDataMap[trails[activeTrail].id!]
+            ) {
                 focusTrail(trails[activeTrail]);
-            } else {
+            } else if (currentBboxes.length > 0) {
                 flyToBounds();
             }
         } else if (drawing && activeTrail !== null && mapLoaded) {
-            addCaretLayer(data[activeTrail]);
+            const activeId = trails[activeTrail]?.id;
+            if (activeId && gpxDataMap[activeId]) {
+                addCaretLayer(gpxDataMap[activeId]);
+            }
         }
     }
 
@@ -314,8 +357,9 @@
     }
 
     export function refreshElevationProfile() {
-        if (activeTrail !== null && data[activeTrail]) {
-            epc?.setData(data[activeTrail]!, waypoints);
+        const activeId = activeTrail !== null ? trails[activeTrail]?.id : null;
+        if (activeId && gpxDataMap[activeId]) {
+            epc?.setData(gpxDataMap[activeId]!, waypoints);
         }
     }
 
@@ -325,7 +369,7 @@
             maxX = -Infinity,
             maxY = -Infinity;
 
-        for (const [xMin, yMin, xMax, yMax] of data
+        for (const [xMin, yMin, xMax, yMax] of Object.values(gpxDataMap)
             .filter((d) => d.bbox !== undefined)
             .map((d) => d.bbox!)) {
             minX = Math.min(minX, xMin);
@@ -347,9 +391,10 @@
     }
 
     function flyToBounds() {
+        const activeId = activeTrail !== null ? trails[activeTrail]?.id : null;
         const bounds =
-            activeTrail !== null && data[activeTrail]
-                ? (data[activeTrail].bbox as M.LngLatBoundsLike)
+            activeId && gpxDataMap[activeId]
+                ? (gpxDataMap[activeId].bbox as M.LngLatBoundsLike)
                 : getBounds();
 
         if (!bounds || !map) {
@@ -390,18 +435,33 @@
             trailColors[
                 clusterTrails
                     ? hashStringToIndex(id ?? "", trailColors.length)
-                    : 0
+                    : index % trailColors.length
             ],
             {
-                onEnter: (e) =>
-                    highlightTrail(id, trails[activeTrail ?? -1]?.id == id),
-
-                onLeave: (e) => unHighlightTrail(id),
-                onMouseUp: (e) => {
-                    activeTrail = trails.findIndex((t) => t.id == trail.id);
+                minZoom: clusterTrails ? clusterMinZoom : undefined,
+                tiers: {
+                    thresholds: [
+                        MAP_LOW_ZOOM_THRESHOLD,
+                        MAP_MEDIUM_ZOOM_THRESHOLD,
+                        clusterMinZoom,
+                    ],
+                    limits: [
+                        MAP_LOW_ZOOM_DIAGONAL_LIMIT,
+                        MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
+                        MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
+                    ],
                 },
-                onMouseMove: moveCrosshairToCursorPosition,
-                onMouseDown: (e) => handleDragStart(e, id),
+                listeners: {
+                    onEnter: (e) =>
+                        highlightTrail(id, trails[activeTrail ?? -1]?.id == id),
+
+                    onLeave: (e) => unHighlightTrail(id),
+                    onMouseUp: (e) => {
+                        activeTrail = trails.findIndex((t) => t.id == trail.id);
+                    },
+                    onMouseMove: moveCrosshairToCursorPosition,
+                    onMouseDown: (e) => handleDragStart(e, id),
+                },
             },
         );
 
@@ -420,14 +480,14 @@
             "clusters",
             new ClusterLayer(map, geojson, clusterMinZoom, {
                 thresholds: [
-                    Number(env.PUBLIC_MAP_LOW_ZOOM_THRESHOLD || 8),
-                    Number(env.PUBLIC_MAP_MEDIUM_ZOOM_THRESHOLD || 10),
-                    Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12),
+                    MAP_LOW_ZOOM_THRESHOLD,
+                    MAP_MEDIUM_ZOOM_THRESHOLD,
+                    clusterMinZoom,
                 ],
                 limits: [
-                    Number(env.PUBLIC_MAP_LOW_ZOOM_DIAGONAL_LIMIT || 25000),
-                    Number(env.PUBLIC_MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT || 10000),
-                    Number(env.PUBLIC_MAP_HIGH_ZOOM_DIAGONAL_LIMIT || 5000),
+                    MAP_LOW_ZOOM_DIAGONAL_LIMIT,
+                    MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
+                    MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
                 ],
             }),
         );
@@ -440,18 +500,32 @@
         layerManager.addLayer(
             "preview",
             new PreviewLayer(map, geojson, clusterMinZoom, {
-                preview: {
-                    onEnter: (e) => {
-                        const trail = trails.find(
-                            (t) =>
-                                t.id ===
-                                (e as any).features[0].properties.trail,
-                        );
-                        if (!trail) return;
-                        highlightCluster(trail, e.lngLat);
-                    },
-                    onLeave: (e) => {
-                        // unHighlightCluster();
+                tiers: {
+                    thresholds: [
+                        MAP_LOW_ZOOM_THRESHOLD,
+                        MAP_MEDIUM_ZOOM_THRESHOLD,
+                        clusterMinZoom,
+                    ],
+                    limits: [
+                        MAP_LOW_ZOOM_DIAGONAL_LIMIT,
+                        MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
+                        MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
+                    ],
+                },
+                listeners: {
+                    preview: {
+                        onEnter: (e) => {
+                            const trail = trails.find(
+                                (t) =>
+                                    t.id ===
+                                    (e as any).features[0].properties.trail,
+                            );
+                            if (!trail) return;
+                            highlightCluster(trail, e.lngLat);
+                        },
+                        onLeave: (e) => {
+                            // unHighlightCluster();
+                        },
                     },
                 },
             }),
@@ -596,7 +670,7 @@
             if (
                 !drawing &&
                 fitBounds !== "off" &&
-                data.some((d) => d.bbox !== undefined)
+                Object.values(gpxDataMap).some((d) => d.bbox !== undefined)
             ) {
                 untrack(() => focusTrail(trails[activeTrail]));
             }
@@ -619,7 +693,9 @@
                 epc?.showProfile();
             }
             showWaypoints();
-            addCaretLayer(data[activeTrail]);
+            if (trail.id && gpxDataMap[trail.id]) {
+                addCaretLayer(gpxDataMap[trail.id]);
+            }
             flyToBounds();
         } catch (e) {
             console.warn(e);
@@ -666,10 +742,11 @@
         map.getCanvas().style.cursor = "inherit";
 
         if (activeTrail !== null && trails[activeTrail] && !clusterTrails) {
+            const activeId = trails[activeTrail].id;
             addStartEndMarkers(
                 trails[activeTrail],
-                trails[activeTrail].id,
-                data[activeTrail],
+                activeId,
+                activeId ? gpxDataMap[activeId] : null,
             );
         }
     }
@@ -826,6 +903,13 @@
             ...mapOptions,
         };
         map = new M.Map(finalMapOptions);
+
+        // Ensure we always have glyphs for symbol layers (like cluster counts)
+        map.on("styledata", () => {
+            if (map && !map.getStyle().glyphs) {
+                map.setGlyphs("https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf");
+            }
+        });
 
         layerManager = new LayerManager(map);
 
@@ -1021,8 +1105,9 @@
 
         if (e.key == "m") {
             if (trails.length === 1) {
-                addTrailLayer(trails[0], trails[0].id!, 0, data[0]);
-                addCaretLayer(data[0]);
+                const trailId = trails[0].id!;
+                addTrailLayer(trails[0], trailId, 0, gpxDataMap[trailId]);
+                addCaretLayer(gpxDataMap[trailId]);
             }
         } else if (e.key == "p") {
             if (showElevation) {

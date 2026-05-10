@@ -15,11 +15,6 @@ import { tags_create } from "./tag_store";
 import { currentUser } from "./user_store";
 import { waypoints_create, waypoints_delete, waypoints_update } from "./waypoint_store";
 
-let trails: Trail[] = []
-export const trail: Writable<Trail> = writable(new Trail(""));
-
-export const editTrail: Writable<Trail> = writable(new Trail(""));
-
 export async function trails_index(perPage: number = 21, random: boolean = false, f: (url: RequestInfo | URL, config?: RequestInit) => Promise<Response> = fetch) {
     const r = await f('/api/v1/trail?' + new URLSearchParams({
         "perPage": perPage.toString(),
@@ -94,7 +89,21 @@ export async function trails_search_filter(filter: TrailFilter, page: number = 1
 
 }
 
-export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, zoom: number = 11, polylineMinZoom: number = 10) {
+export const MAP_LOW_ZOOM_THRESHOLD = Number(env.PUBLIC_MAP_LOW_ZOOM_THRESHOLD || 8);
+export const MAP_MEDIUM_ZOOM_THRESHOLD = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_THRESHOLD || 10);
+
+export const MAP_LOW_ZOOM_DIAGONAL_LIMIT = Number(env.PUBLIC_MAP_LOW_ZOOM_DIAGONAL_LIMIT || 25000);
+export const MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT || 10000);
+export const MAP_HIGH_ZOOM_DIAGONAL_LIMIT = Number(env.PUBLIC_MAP_HIGH_ZOOM_DIAGONAL_LIMIT || 5000);
+
+let trails: Trail[] = []
+const detailedCache = new Map<string, Trail>();
+
+export const trail: Writable<Trail> = writable(new Trail(""));
+
+export const editTrail: Writable<Trail> = writable(new Trail(""));
+
+export async function trails_search_bounding_box(northEast: M.LngLat, southWest: M.LngLat, filter: TrailFilter, page: number = 1, zoom: number = 11, polylineMinZoom: number = 12) {
     const user = get(currentUser)
 
     let filterText: string = "";
@@ -104,63 +113,37 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
     }
 
     const includePolyline = zoom >= polylineMinZoom;
-    const lowZoomDiagonal = Number(env.PUBLIC_MAP_LOW_ZOOM_DIAGONAL_LIMIT || 25000);
-    const mediumZoomDiagonal = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT || 10000);
-    const highZoomDiagonal = Number(env.PUBLIC_MAP_HIGH_ZOOM_DIAGONAL_LIMIT || 5000);
-
-    const lowZoomThreshold = Number(env.PUBLIC_MAP_LOW_ZOOM_THRESHOLD || 8);
-    const mediumZoomThreshold = Number(env.PUBLIC_MAP_MEDIUM_ZOOM_THRESHOLD || 10);
-    const highZoomThreshold = Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12);
-
-    let diagonalFilter = "";
-    if (zoom < lowZoomThreshold) {
-        diagonalFilter = `bounding_box_diagonal > ${lowZoomDiagonal}`;
-    } else if (zoom < mediumZoomThreshold) {
-        diagonalFilter = `bounding_box_diagonal > ${mediumZoomDiagonal}`;
-    } else if (zoom < highZoomThreshold) {
-        diagonalFilter = `bounding_box_diagonal > ${highZoomDiagonal}`;
-    }
 
     let lonFilter = `max_lon >= ${southWest.lng} AND min_lon <= ${northEast.lng}`;
     if (southWest.lng > northEast.lng) {
         lonFilter = `(max_lon >= ${southWest.lng} OR min_lon <= ${northEast.lng})`;
     }
 
-    // Base query to fetch all trails in view for accurate clustering
-    const queries: any[] = [
-        {
-            indexUid: "trails",
-            q: "",
-            filter: [
-                `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`,
-                filterText
-            ].filter(f => f !== ""),
-            attributesToRetrieve: defaultTrailSearchAttributes,
-            hitsPerPage: 1000,
-            page: page
-        }
-    ];
+    const geoFilter = `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`;
 
-    // If we want polylines, add a second query that includes them but is filtered by diagonal
-    // This query is only to retrieve polylines for trails that pass the filter
-    if (includePolyline || diagonalFilter !== "") {
-        queries.push({
-            indexUid: "trails",
-            q: "",
-            filter: [
-                `max_lat >= ${southWest.lat} AND min_lat <= ${northEast.lat} AND ${lonFilter}`,
-                filterText,
-                diagonalFilter
-            ].filter(f => f !== ""),
-            attributesToRetrieve: ["id", "polyline"],
-            hitsPerPage: 1000,
-            page: 1
-        });
+    // Determine the diagonal filter for visibility
+    let minDiagonal = 0;
+    if (zoom < MAP_LOW_ZOOM_THRESHOLD) {
+        minDiagonal = MAP_LOW_ZOOM_DIAGONAL_LIMIT;
+    } else if (zoom < MAP_MEDIUM_ZOOM_THRESHOLD) {
+        minDiagonal = MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT;
+    } else if (zoom < polylineMinZoom) {
+        minDiagonal = MAP_HIGH_ZOOM_DIAGONAL_LIMIT;
     }
+
+    // Step 1: Lightweight summary for all trails in view (for accurate clustering)
+    const summaryQuery = {
+        indexUid: "trails",
+        q: "",
+        filter: [geoFilter, filterText].filter(f => f !== ""),
+        attributesToRetrieve: ["id", "_geo", "bounding_box_diagonal"],
+        hitsPerPage: 1000,
+        page: 1
+    };
 
     let r = await fetch("/api/v1/search/multi", {
         method: "POST",
-        body: JSON.stringify({ queries }),
+        body: JSON.stringify({ queries: [summaryQuery] }),
     });
 
     if (!r.ok) {
@@ -169,29 +152,94 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
     }
 
     const multiResult = await r.json();
-    const result = multiResult.results[0];
+    const summaryHits = multiResult.results[0].hits;
 
-    if (!result.hits || result.hits.length == 0) {
+    if (!summaryHits || summaryHits.length == 0) {
         trails = [];
-        return { trails: [], ...result }
+        return { trails: [], ...multiResult.results[0] }
     }
 
-    // If we have a second query result, merge the polylines
-    if (multiResult.results.length > 1) {
-        const polylineHits = multiResult.results[1].hits;
-        const polylineMap = new Map(polylineHits.map((h: any) => [h.id, h.polyline]));
-        result.hits.forEach((h: any) => {
-            if (polylineMap.has(h.id)) {
-                h.polyline = polylineMap.get(h.id);
+    // Step 2: Identify which visible trails are MISSING from the local cache
+    const missingIds = summaryHits
+        .filter((h: any) => (h.bounding_box_diagonal ?? 0) > minDiagonal && !detailedCache.has(h.id))
+        .map((h: any) => h.id);
+
+    // Step 3: Only fetch details for missing trails
+    if (missingIds.length > 0) {
+        const batchSize = 100; // Meilisearch filter length safety
+        for (let i = 0; i < missingIds.length; i += batchSize) {
+            const batch = missingIds.slice(i, i + batchSize);
+            const detailBatchQuery = {
+                indexUid: "trails",
+                q: "",
+                filter: [`id IN [${batch.map((id: string) => `'${id}'`).join(",")}]`],
+                attributesToRetrieve: [...defaultTrailSearchAttributes, "polyline"],
+                hitsPerPage: batchSize,
+            };
+
+            const dr = await fetch("/api/v1/search/multi", {
+                method: "POST",
+                body: JSON.stringify({ queries: [detailBatchQuery] }),
+            });
+
+            if (dr.ok) {
+                const detailResult = await dr.json();
+                const newTrails = await searchResultToTrailList(detailResult.results[0].hits);
+                // Populate cache
+                newTrails.forEach(t => {
+                    if (t.id) detailedCache.set(t.id, t)
+                });
             }
-        });
+        }
     }
 
-    const resultTrails: Trail[] = await searchResultToTrailList(result.hits)
+    // Step 4: Convert summary hits to lightweight Trail objects
+    const summaryTrails: Trail[] = summaryHits.map((s: any) => {
+        if (detailedCache.has(s.id)) {
+            const cached = detailedCache.get(s.id)!;
+            // CRITICAL: Ensure cached object has fresh coordinates for clustering
+            cached.lat = s._geo.lat;
+            cached.lon = s._geo.lng;
+            cached.bounding_box_diagonal = s.bounding_box_diagonal ?? cached.bounding_box_diagonal;
+            return cached;
+        }
 
-    trails = page > 1 ? trails.concat(resultTrails) : resultTrails
+        // Lightweight fallback for map markers
+        const t: Trail & RecordModel = {
+            id: s.id,
+            lat: s._geo.lat,
+            lon: s._geo.lng,
+            name: "",
+            author: "",
+            photos: [],
+            public: true,
+            completed: false,
+            summit_logs: [],
+            waypoints: [],
+            tags: [],
+            category: "",
+            created: new Date(0).toISOString(),
+            date: new Date(0).toISOString(),
+            updated: new Date(0).toISOString(),
+            description: "",
+            difficulty: "easy",
+            distance: 0,
+            duration: 0,
+            elevation_gain: 0,
+            elevation_loss: 0,
+            location: "",
+            bounding_box_diagonal: s.bounding_box_diagonal ?? 0,
+            like_count: 0,
+            collectionId: "trails",
+            collectionName: "trails",
+            expand: { author: {} as any }
+        };
+        return t;
+    });
 
-    return { trails, ...result };
+    trails = page > 1 ? trails.concat(summaryTrails) : summaryTrails
+
+    return { trails, ...multiResult.results[0] };
 }
 
 export async function trails_show(id: string, handle?: string, share?: string, loadGPX?: boolean, f: (url: RequestInfo | URL, config?: RequestInit) => Promise<Response> = fetch) {
@@ -513,10 +561,12 @@ export async function fetchGPX(trail: { gpx?: string } & Record<string, any>, f:
 export async function searchResultToTrailList(hits: Hits<TrailSearchResult>): Promise<Trail[]> {
     const trails: Trail[] = []
     for (const h of hits) {
+        const created = Number(h.created || 0);
+        const date = Number(h.date || 0);
         const t: Trail & RecordModel = {
             collectionId: "trails",
             collectionName: "trails",
-            updated: new Date(h.created * 1000).toISOString(),
+            updated: new Date(created * 1000).toISOString(),
             author: h.author_name,
             name: h.name,
             photos: h.thumbnail ? [h.thumbnail] : [],
@@ -526,8 +576,8 @@ export async function searchResultToTrailList(hits: Hits<TrailSearchResult>): Pr
             waypoints: [],
             tags: h.tags ?? [],
             category: h.category,
-            created: new Date(h.created * 1000).toISOString(),
-            date: new Date(h.date * 1000).toISOString(),
+            created: new Date(created * 1000).toISOString(),
+            date: new Date(date * 1000).toISOString(),
             description: h.description,
             difficulty: h.difficulty == 0 ? "easy" : h.difficulty == 1 ? "moderate" : "difficult",
             distance: h.distance,

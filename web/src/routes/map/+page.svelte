@@ -77,6 +77,8 @@
         },
     };
 
+    const clusterMinZoom = settings?.behavior?.mapClusterMinZoom ?? Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12);
+
     async function search(q: string) {
         const r = await searchMulti({
             queries: [
@@ -148,7 +150,7 @@
             filter,
             pagination.page,
             map?.getZoom() ?? 0,
-            settings?.behavior?.mapClusterMinZoom ?? Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12),
+            clusterMinZoom,
         );
         pagination.totalPages = trailsInBox.totalPages;
         trails = trailsInBox.trails;
@@ -393,7 +395,7 @@
                 {#if trails.length == 0}
                     <EmptyStateSearch></EmptyStateSearch>
                 {/if}
-                {#each trails as trail, i}
+                {#each trails.filter(t => t.name !== "") as trail, i}
                     <a
                         href="/map/trail/@{trail.author}{trail.domain
                             ? `@${trail.domain}`
@@ -428,7 +430,7 @@
             activeTrail={-1}
             fitBounds="off"
             clusterTrails={true}
-            clusterMinZoom={settings?.behavior?.mapClusterMinZoom ?? Number(env.PUBLIC_MAP_HIGH_ZOOM_THRESHOLD || 12)}
+            clusterMinZoom={clusterMinZoom}
             bind:map
 
             bind:this={mapWithElevation}

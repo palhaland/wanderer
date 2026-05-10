@@ -251,7 +251,7 @@ func initMeilisearchConfig(client meilisearch.ServiceManager) {
 		"trails": {
 			SearchableAttributes: []string{"author_name", "name", "description", "location", "tags"},
 			FilterableAttributes: []string{
-				"_geo", "author", "category", "completed", "date", "difficulty",
+				"id", "_geo", "author", "category", "completed", "date", "difficulty",
 				"distance", "elevation_gain", "elevation_loss", "likes", "public",
 				"shares", "tags", "min_lat", "max_lat", "min_lon", "max_lon", "bounding_box_diagonal",
 			},

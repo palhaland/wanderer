@@ -1,3 +1,8 @@
+# [Unreleased]
+
+## Features
+- Tiered map clustering and polyline filtering: The world map now uses zoom-dependent thresholds to manage performance while maintaining transparency. Small trails are automatically clustered at lower zoom levels, while larger routes are shown as detailed polylines. These thresholds and visibility limits are fully configurable via new environment variables (`PUBLIC_MAP_*_ZOOM_THRESHOLD` and `PUBLIC_MAP_*_DIAGONAL_LIMIT`).
+
 # v0.19.0
 
 ## Breaking Changes
@@ -14,7 +19,6 @@
 - Additional CSRF/SSRF protections and rate limiting have been implemented for ActivityPub and outbound network calls. (PR #930)
 
 ## Features
-- Tiered map clustering and polyline filtering: The world map now uses zoom-dependent thresholds to manage performance while maintaining transparency. Small trails are automatically clustered at lower zoom levels, while larger routes are shown as detailed polylines. These thresholds and visibility limits are fully configurable via new environment variables (`PUBLIC_MAP_*_ZOOM_THRESHOLD` and `PUBLIC_MAP_*_DIAGONAL_LIMIT`).
 - Hammerhead integration added, including synchronisation of planned and completed tours, and manual trail sending. (PR #628)
 - The federation has been significantly expanded and refactored to provide more robust remote content synchronisation and local caching for remote trails and lists. (PR #930)
 - Trails can now be explicitly marked as completed. (PR #920)
