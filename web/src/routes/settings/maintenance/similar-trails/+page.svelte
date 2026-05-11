@@ -4,7 +4,6 @@
     import TrailListItem from "$lib/components/trail/trail_list_item.svelte";
     import TrailMergeModal, {
         type MergeSelection,
-        type MergeSettings,
     } from "$lib/components/trail/trail_merge_modal.svelte";
     import MapWithElevationMaplibre from "$lib/components/trail/map_with_elevation_maplibre.svelte";
     import type { Trail } from "$lib/models/trail";
@@ -12,6 +11,7 @@
         type TrailMergeSuggestGroup,
         trail_merge,
         trail_merge_suggest_groups,
+        type MergeSettings,
     } from "$lib/stores/trail_merge_api";
     import { translateTrailMergeError } from "$lib/stores/trail_merge_i18n";
     import {

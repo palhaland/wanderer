@@ -1,5 +1,5 @@
 {
-  "openapi": "3.0.3",
+  "openapi": "3.0.0",
   "info": {
     "title": "Wanderer API",
     "version": "0.18.5",
@@ -1690,7 +1690,7 @@
     "/api/v1/trail/{id}": {
       "get": {
         "summary": "Get trail",
-        "description": "Retrieves a trail by ID. Supports federated queries via handle parameter, fetching from remote instances and remapping file URLs",
+        "description": "Retrieves a trail by ID",
         "tags": [
           "Trails"
         ],
@@ -1712,13 +1712,6 @@
           },
           {
             "in": "query",
-            "name": "handle",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "share",
             "schema": {
               "type": "string"
@@ -1727,7 +1720,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Trail with optional federated data"
+            "description": "Trail"
           },
           "404": {
             "description": "Not Found"
@@ -1787,6 +1780,70 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/trail/{id}/comment": {
+      "get": {
+        "summary": "Get trail comments",
+        "tags": [
+          "Trails"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "perPage",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of comments for the trail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
           },
           "500": {
             "description": "Internal Server Error"
@@ -2011,7 +2068,6 @@
     "/api/v1/summit-log": {
       "get": {
         "summary": "List summit logs",
-        "description": "Retrieves a paginated list of summit logs with deduplication of federated data",
         "tags": [
           "Summit Logs"
         ],
@@ -2050,18 +2106,11 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "handle",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "ListResult<SummitLog> with local/remote items deduplicated"
+            "description": "List of summit logs"
           },
           "400": {
             "description": "Bad Request"
@@ -2882,6 +2931,70 @@
         }
       }
     },
+    "/api/v1/profile/{handle}/follows": {
+      "get": {
+        "summary": "Get profile follows",
+        "tags": [
+          "Profiles"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "perPage",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of follows for the profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
     "/api/v1/profile/{handle}/feed": {
       "get": {
         "summary": "Get user activity feed",
@@ -3415,7 +3528,7 @@
     "/api/v1/list/{id}": {
       "get": {
         "summary": "Get list",
-        "description": "Retrieves a list by ID. Supports federated queries via handle parameter, fetching from remote instances and remapping file URLs",
+        "description": "Retrieves a list by ID",
         "tags": [
           "Lists"
         ],
@@ -3434,18 +3547,11 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "handle",
-            "schema": {
-              "type": "string"
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "List with optional federated data"
+            "description": "List"
           },
           "404": {
             "description": "Not Found"
@@ -3892,7 +3998,6 @@
     "/api/v1/follow": {
       "get": {
         "summary": "List follows",
-        "description": "Retrieves follows or ActivityPub follower/following collections. Supports federated queries via handle parameter",
         "tags": [
           "Follows"
         ],
@@ -3931,29 +4036,11 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "handle",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "type",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "followers",
-                "following"
-              ]
-            }
           }
         ],
         "responses": {
           "200": {
-            "description": "List of follows or ActivityPub collection",
+            "description": "List of follows",
             "content": {
               "application/json": {
                 "schema": {
@@ -4168,14 +4255,6 @@
             "name": "expand",
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "handle",
-            "schema": {
-              "type": "string",
-              "description": "Federated query parameter"
             }
           }
         ],
@@ -6926,5 +7005,6 @@
         }
       }
     }
-  }
+  },
+  "tags": []
 }

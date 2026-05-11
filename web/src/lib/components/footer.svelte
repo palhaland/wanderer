@@ -1,10 +1,16 @@
-<script>
+<script lang="ts">
     import LogoTextLightWithVersion from "./logo/logo_text_light_with_version.svelte";
     import { _ } from "svelte-i18n";
+
+    interface Props {
+        class?: string;
+    }
+
+    let { class: className = "" }: Props = $props();
 </script>
 
 <footer
-    class="bg-footer-background text-white w-full grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-y-8 gap-x-12 p-12 mt-12 rounded-t-3xl"
+    class="bg-footer-background text-white w-full grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-y-8 gap-x-12 p-12 mt-12 rounded-t-3xl {className}"
 >
     <div class="col-span-2 md:col-span-1">
         <LogoTextLightWithVersion></LogoTextLightWithVersion>

@@ -39,10 +39,9 @@
         processMergeQueue,
         type Merge,
     } from "$lib/stores/trail_merge_store.svelte";
-    import TrailMergeModal from "./trail_merge_modal.svelte";
-    import type { MergeSelection, MergeSettings } from "./trail_merge_modal.svelte";
+    import TrailMergeModal, { type MergeSelection } from "./trail_merge_modal.svelte";
+    import { trail_merge, type MergeSettings } from "$lib/stores/trail_merge_api";
     import MergeDialog from "$lib/components/trail/trail_merge_dialog.svelte";
-    import { trail_merge } from "$lib/stores/trail_merge_api";
 
     export interface MergeResult {
         targetTrail: Trail;

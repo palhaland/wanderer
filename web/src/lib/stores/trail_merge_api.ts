@@ -1,5 +1,13 @@
-import type { MergeSettings } from "$lib/components/trail/trail_merge_modal.svelte";
 import { APIError } from "$lib/util/api_util";
+
+export interface MergeSettings {
+    summitLog: boolean;
+    photos: boolean;
+    comments: boolean;
+    delete: boolean;
+    tags: boolean;
+    likes: boolean;
+}
 
 export interface TrailMergeSuggestCandidate {
     trailId: string;
