@@ -30,11 +30,13 @@
     import { trails_search_bounding_box } from "$lib/stores/trail_store";
     import { getIconForLocation } from "$lib/util/icon_util";
     import type { Snapshot } from "@sveltejs/kit";
+    import type { FeatureCollection } from "geojson";
     import * as M from "maplibre-gl";
     import { _ } from "svelte-i18n";
     import { slide } from "svelte/transition";
 
     let trails: Trail[] = $state([]);
+    let clusters: FeatureCollection | undefined = $state();
 
     let map: M.Map | undefined = $state();
     let mapWithElevation: MapWithElevationMaplibre | undefined = $state();
@@ -154,6 +156,7 @@
         );
         pagination.totalPages = trailsInBox.totalPages;
         trails = trailsInBox.trails;
+        clusters = trailsInBox.clusters;
         loading = false;
     }
 
@@ -194,33 +197,42 @@
         await searchTrails(bounds.getNorthEast(), bounds.getSouthWest());
     }
 
+    let moveTimeout: any;
     async function handleMapMove() {
         if (!map) {
             return;
         }
-        const bounds = map.getBounds();
+        
+        clearTimeout(moveTimeout);
+        moveTimeout = setTimeout(async () => {
+            const bounds = map!.getBounds();
 
-        const normalizedBounds = {
-            southWest: new M.LngLat(
-                ((((bounds.getSouthWest().lng + 180) % 360) + 360) % 360) - 180,
-                bounds.getSouthWest().lat,
-            ),
-            northEast: new M.LngLat(
-                ((((bounds.getNorthEast().lng + 180) % 360) + 360) % 360) - 180,
-                bounds.getNorthEast().lat,
-            ),
-        };
-        await searchTrails(
-            normalizedBounds.northEast,
-            normalizedBounds.southWest,
-        );
+            const normalizedBounds = {
+                southWest: new M.LngLat(
+                    ((((bounds.getSouthWest().lng + 180) % 360) + 360) % 360) - 180,
+                    bounds.getSouthWest().lat,
+                ),
+                northEast: new M.LngLat(
+                    ((((bounds.getNorthEast().lng + 180) % 360) + 360) % 360) - 180,
+                    bounds.getNorthEast().lat,
+                ),
+            };
+            await searchTrails(
+                normalizedBounds.northEast,
+                normalizedBounds.southWest,
+            );
 
-        page.url.searchParams.set("tl_lat", bounds.getNorth().toString());
-        page.url.searchParams.set("tl_lon", bounds.getEast().toString());
-        page.url.searchParams.set("br_lat", bounds.getSouth().toString());
-        page.url.searchParams.set("br_lon", bounds.getWest().toString());
+            page.url.searchParams.set("tl_lat", bounds.getNorth().toString());
+            page.url.searchParams.set("tl_lon", bounds.getEast().toString());
+            page.url.searchParams.set("br_lat", bounds.getSouth().toString());
+            page.url.searchParams.set("br_lon", bounds.getWest().toString());
 
-        goto(`?${page.url.searchParams.toString()}`);
+            goto(`?${page.url.searchParams.toString()}`, {
+                replaceState: true,
+                noScroll: true,
+                keepFocus: true,
+            });
+        }, 200);
     }
 
     function handleMapInit() {
@@ -424,6 +436,7 @@
             onmoveend={handleMapMove}
             oninit={handleMapInit}
             {trails}
+            serverClusters={clusters}
             showElevation={false}
             showTerrain={true}
             showInfoPopup={true}

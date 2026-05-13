@@ -38,6 +38,7 @@
 
     interface Props {
         trails?: Trail[];
+        serverClusters?: GeoJSON.FeatureCollection;
         gpx?: GPX;
         waypoints?: Waypoint[];
         markers?: M.Marker[];
@@ -82,6 +83,7 @@
 
     let {
         trails = [],
+        serverClusters = undefined,
         waypoints = [],
         markers = $bindable([]),
         map = $bindable(),
@@ -124,7 +126,7 @@
 
     let hoveringTrail: boolean = false;
 
-    let mapLoaded: boolean = false;
+    let mapLoaded: boolean = $state(false);
     let terrainEnabled: boolean | null = null;
 
     const trailColors = [
@@ -142,12 +144,23 @@
 
     let clusterPopup: M.Popup | null = null;
 
-    let [gpxDataMap, clusterData, previewData] = $derived(getData(trails));
+    let mapData = $derived(getData(trails, serverClusters));
+    let gpxDataMap = $derived(mapData[0]);
+    let clusterData = $derived(mapData[1]);
+    let previewData = $derived(mapData[2]);
+
     $effect(() => {
         // Track dependencies for Svelte 5
-        gpxDataMap;
-        clusterData;
-        previewData;
+        mapData;
+        
+        console.log("Map Debug:", {
+            trailsLen: trails.length,
+            previewFeatures: previewData.features.length,
+            clusterFeatures: clusterData.features.length,
+            mapLoaded: mapLoaded,
+            zoom: map?.getZoom(),
+            clusterMinZoom
+        });
 
         if (map && mapLoaded) {
             untrack(() => initMap(map?.loaded() ?? false));
@@ -201,12 +214,14 @@
 
     function getData(
         trails: Trail[],
+        serverClusters?: GeoJSON.FeatureCollection
     ): [
         Record<string, FeatureCollection>,
         FeatureCollection,
         FeatureCollection,
     ] {
-        let clusterData: FeatureCollection = {
+        console.log("getData called", { trailsLen: trails.length, hasServerClusters: !!serverClusters });
+        let clusterData: FeatureCollection = serverClusters ?? {
             type: "FeatureCollection",
             features: [],
         };
@@ -237,7 +252,7 @@
             }
 
             if (clusterTrails) {
-                if (t.lat !== undefined && t.lon !== undefined) {
+                if (!serverClusters && t.lat !== undefined && t.lon !== undefined) {
                     clusterData.features.push({
                         id: t.id,
                         type: "Feature",
@@ -439,18 +454,20 @@
             ],
             {
                 minZoom: clusterTrails ? clusterMinZoom : undefined,
-                tiers: {
-                    thresholds: [
-                        MAP_LOW_ZOOM_THRESHOLD,
-                        MAP_MEDIUM_ZOOM_THRESHOLD,
-                        clusterMinZoom,
-                    ],
-                    limits: [
-                        MAP_LOW_ZOOM_DIAGONAL_LIMIT,
-                        MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
-                        MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
-                    ],
-                },
+                tiers: clusterTrails
+                    ? {
+                          thresholds: [
+                              MAP_LOW_ZOOM_THRESHOLD,
+                              MAP_MEDIUM_ZOOM_THRESHOLD,
+                              clusterMinZoom,
+                          ],
+                          limits: [
+                              MAP_LOW_ZOOM_DIAGONAL_LIMIT,
+                              MAP_MEDIUM_ZOOM_DIAGONAL_LIMIT,
+                              MAP_HIGH_ZOOM_DIAGONAL_LIMIT,
+                          ],
+                      }
+                    : undefined,
                 listeners: {
                     onEnter: (e) =>
                         highlightTrail(id, trails[activeTrail ?? -1]?.id == id),
@@ -903,6 +920,7 @@
             ...mapOptions,
         };
         map = new M.Map(finalMapOptions);
+        (window as any).map = map;
 
         // Ensure we always have glyphs for symbol layers (like cluster counts)
         map.on("styledata", () => {

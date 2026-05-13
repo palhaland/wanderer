@@ -26,6 +26,7 @@ services:
       timeout: 10s
   db:
     container_name: wanderer-db
+    build: ./db
     image: flomp/wanderer-db
     depends_on:
       search:
@@ -49,6 +50,7 @@ services:
       timeout: 10s
   web:
     container_name: wanderer-web
+    build: ./web
     image: flomp/wanderer-web
     depends_on:
       search:

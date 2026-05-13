@@ -58,9 +58,6 @@ export class ClusterLayer implements BaseLayer {
                 "cluster-trails": {
                     type: "geojson",
                     data: geojson,
-                    cluster: true,
-                    clusterRadius: 50,
-                    clusterMaxZoom: maxZoom,
                 }
             },
             layers: [
@@ -68,26 +65,24 @@ export class ClusterLayer implements BaseLayer {
                     id: "clusters",
                     type: "circle",
                     source: "cluster-trails",
-                    filter: ["has", "point_count"],
-                    maxzoom: maxZoom,
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": [
                             "step",
                             ["get", "point_count"],
-                            10,
-                            10,
+                            12,
+                            5,
                             15,
-                            20,
-                            20,
+                            10,
+                            18,
                             50,
-                            25,
+                            22,
                             100,
+                            25,
+                            500,
                             30,
-                            200,
-                            35,
                         ],
-                        "circle-stroke-width": 3,
+                        "circle-stroke-width": 2,
                         "circle-stroke-color": "#fff",
                     },
                 },
@@ -95,36 +90,15 @@ export class ClusterLayer implements BaseLayer {
                     id: "cluster-count",
                     type: "symbol",
                     source: "cluster-trails",
-                    filter: ["has", "point_count"],
-                    maxzoom: maxZoom,
+                    layout: {
+                        "text-field": ["get", "point_count_abbreviated"],
+                        "text-font": ["Noto Sans Regular"],
+                        "text-size": 11,
+                        "text-allow-overlap": true,
+                        "text-ignore-placement": true,
+                    },
                     paint: {
                         "text-color": "#fff",
-                    },
-                    layout: {
-                        "text-field": "{point_count_abbreviated}",
-                        "text-font": ["Noto Sans Regular"],
-                        "text-size": 12,
-                    },
-                },
-                {
-                    id: "unclustered-point",
-                    type: "circle",
-                    source: "cluster-trails",
-                    maxzoom: maxZoom,
-                    filter: [
-                        "all",
-                        ["!", ["has", "point_count"]],
-                        [
-                            "<",
-                            ["get", "bounding_box_diagonal"],
-                            stepExpr as any
-                        ]
-                    ],
-                    paint: {
-                        "circle-color": "#242734",
-                        "circle-radius": 7,
-                        "circle-stroke-width": 2,
-                        "circle-stroke-color": "#fff",
                     },
                 }
             ]
@@ -136,13 +110,10 @@ export class ClusterLayer implements BaseLayer {
         const features = this.map.queryRenderedFeatures(e.point, {
             layers: ["clusters"],
         });
-        const clusterId = features[0].properties.cluster_id;
-        const zoom = await (
-            this.map.getSource("cluster-trails") as M.GeoJSONSource
-        ).getClusterExpansionZoom(clusterId);
+        const currentZoom = this.map.getZoom();
         this.map.flyTo({
             center: (features[0].geometry as any).coordinates,
-            zoom,
+            zoom: currentZoom + 2,
             maxDuration: 3000
         });
     }

@@ -45,6 +45,19 @@ export class TrailLayer implements BaseLayer {
             ];
         }
 
+        const layer: M.LineLayerSpecification = {
+            id: id,
+            type: "line",
+            source: id,
+            paint: {
+                "line-color": color,
+                "line-width": 5,
+            },
+        };
+        
+        if (filter !== undefined) layer.filter = filter;
+        if (options?.maxZoom !== undefined) layer.maxzoom = options.maxZoom;
+
         this.spec = {
             version: 8,
             name: id,
@@ -54,18 +67,7 @@ export class TrailLayer implements BaseLayer {
                     data: geojson,
                 }
             },
-            layers: [{
-                id: id,
-                type: "line",
-                source: id,
-                minzoom: options?.minZoom,
-                maxzoom: options?.maxZoom,
-                filter: filter,
-                paint: {
-                    "line-color": color,
-                    "line-width": 5,
-                },
-            }]
+            layers: [layer]
 
         };
 

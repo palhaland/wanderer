@@ -92,7 +92,6 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview",
                     type: "line",
                     source: "preview",
-                    minzoom: minZoom,
                     filter: lineFilter,
                     paint: {
                         "line-color": ["get", "color"],
@@ -103,7 +102,6 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview-start-points",
                     type: "circle",
                     source: "preview-start-points",
-                    minzoom: minZoom,
                     paint: {
                         "circle-color": "#242734",
                         "circle-radius": 6,
@@ -115,7 +113,6 @@ export class PreviewLayer implements BaseLayer {
                     id: "preview-direction-carets",
                     type: "symbol",
                     source: "preview",
-                    minzoom: minZoom,
                     layout: {
                         "symbol-placement": "line",
                         "symbol-spacing": [

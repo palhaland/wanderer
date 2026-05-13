@@ -131,38 +131,32 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         minDiagonal = MAP_HIGH_ZOOM_DIAGONAL_LIMIT;
     }
 
-    // Step 1: Lightweight summary for all trails in view (for accurate clustering)
-    const summaryQuery = {
-        indexUid: "trails",
-        q: "",
-        filter: [geoFilter, filterText].filter(f => f !== ""),
-        attributesToRetrieve: ["id", "_geo", "bounding_box_diagonal"],
-        hitsPerPage: 1000,
-        page: 1
-    };
-
-    let r = await fetch("/api/v1/search/multi", {
+    // Step 1: Fetch server-side clusters and unclustered points
+    let cr = await fetch("/api/v1/search/trails/cluster", {
         method: "POST",
-        body: JSON.stringify({ queries: [summaryQuery] }),
+        body: JSON.stringify({
+            southWest: { lat: southWest.lat, lng: southWest.lng },
+            northEast: { lat: northEast.lat, lng: northEast.lng },
+            zoom,
+            filterText
+        })
     });
 
-    if (!r.ok) {
-        const response = await r.json();
-        throw new APIError(r.status, response.message, response.detail)
+    if (!cr.ok) {
+        const response = await cr.json();
+        throw new APIError(cr.status, response.message, response.detail)
     }
 
-    const multiResult = await r.json();
-    const summaryHits = multiResult.results[0].hits;
-
-    if (!summaryHits || summaryHits.length == 0) {
-        trails = [];
-        return { trails: [], ...multiResult.results[0] }
-    }
+    const clusterResult = await cr.json();
+    const clusterFeatureCollection = clusterResult;
+    
+    // Extract IDs of visible unclustered points that are large enough to show details for
+    const unclusteredIds = clusterFeatureCollection.features
+        .filter((f: any) => !f.properties.cluster && f.properties.is_large)
+        .map((f: any) => f.properties.id);
 
     // Step 2: Identify which visible trails are MISSING from the local cache
-    const missingIds = summaryHits
-        .filter((h: any) => (h.bounding_box_diagonal ?? 0) > minDiagonal && !detailedCache.has(h.id))
-        .map((h: any) => h.id);
+    const missingIds = unclusteredIds.filter((id: string) => !detailedCache.has(id));
 
     // Step 3: Only fetch details for missing trails
     if (missingIds.length > 0) {
@@ -173,7 +167,7 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
                 indexUid: "trails",
                 q: "",
                 filter: [`id IN [${batch.map((id: string) => `'${id}'`).join(",")}]`],
-                attributesToRetrieve: [...defaultTrailSearchAttributes, "polyline"],
+                attributesToRetrieve: [...defaultTrailSearchAttributes, includePolyline ? "polyline" : ""].filter(Boolean),
                 hitsPerPage: batchSize,
             };
 
@@ -193,13 +187,19 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         }
     }
 
-    // Step 4: Convert summary hits to lightweight Trail objects
-    const summaryTrails: Trail[] = summaryHits.map((s: any) => {
+    // Step 4: Convert unclustered hits to lightweight Trail objects
+    const summaryTrails: Trail[] = clusterFeatureCollection.features
+        .filter((f: any) => !f.properties.cluster)
+        .map((f: any) => {
+        const s = f.properties;
+        const lat = f.geometry.coordinates[1];
+        const lng = f.geometry.coordinates[0];
+
         if (detailedCache.has(s.id)) {
             const cached = detailedCache.get(s.id)!;
             // CRITICAL: Ensure cached object has fresh coordinates for clustering
-            cached.lat = s._geo.lat;
-            cached.lon = s._geo.lng;
+            cached.lat = lat;
+            cached.lon = lng;
             cached.bounding_box_diagonal = s.bounding_box_diagonal ?? cached.bounding_box_diagonal;
             return cached;
         }
@@ -207,8 +207,8 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
         // Lightweight fallback for map markers
         const t: Trail & RecordModel = {
             id: s.id,
-            lat: s._geo.lat,
-            lon: s._geo.lng,
+            lat: lat,
+            lon: lng,
             name: "",
             author: "",
             photos: [],
@@ -239,7 +239,7 @@ export async function trails_search_bounding_box(northEast: M.LngLat, southWest:
 
     trails = page > 1 ? trails.concat(summaryTrails) : summaryTrails
 
-    return { trails, ...multiResult.results[0] };
+    return { trails, clusters: clusterFeatureCollection, estimatedTotalHits: clusterResult.totalHits, totalHits: clusterResult.totalHits, totalPages: 1 };
 }
 
 export async function trails_show(id: string, handle?: string, share?: string, loadGPX?: boolean, f: (url: RequestInfo | URL, config?: RequestInit) => Promise<Response> = fetch) {
@@ -645,7 +645,7 @@ function buildFilterText(user: AuthRecord, filter: TrailFilter, includeGeo: bool
     }
 
     if (filter.author?.length) {
-        filterText += ` AND author = ${filter.author}`
+        filterText += ` AND author = '${filter.author}'`
     }
 
     if (filter.public !== undefined || filter.private !== undefined || filter.shared !== undefined) {
@@ -657,21 +657,21 @@ function buildFilterText(user: AuthRecord, filter: TrailFilter, includeGeo: bool
 
         if (showPublic === true) {
             filterText += "(public = TRUE";
-            if (showPrivate === true && (!filter.author?.length || filter.author == user?.actor)) {
-                filterText += ` OR author = ${user?.actor}`;
+            if (showPrivate === true && user?.actor && (!filter.author?.length || filter.author == user?.actor)) {
+                filterText += ` OR author = '${user?.actor}'`;
             }
             filterText += ")";
         }
-        else if (!filter.author?.length || filter.author == user?.actor) {
+        else if (user?.actor && (!filter.author?.length || filter.author == user?.actor)) {
             filterText += "public = FALSE";
-            filterText += ` AND author = ${user?.actor}`;
+            filterText += ` AND author = '${user?.actor}'`;
         }
 
-        if (filter.shared !== undefined) {
+        if (filter.shared !== undefined && user?.actor) {
             if (filter.shared === true) {
-                filterText += ` OR shares = ${user?.actor}`
+                filterText += ` OR shares = '${user?.actor}'`
             } else {
-                filterText += ` AND NOT shares = ${user?.actor}`
+                filterText += ` AND NOT shares = '${user?.actor}'`
 
             }
         }
