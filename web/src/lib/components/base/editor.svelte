@@ -74,7 +74,6 @@
             element: element,
             extensions: [
                 StarterKit.configure({
-                    link: false,
                 }),
                 Placeholder.configure({
                     placeholder: placeholder,
@@ -387,7 +386,7 @@
             <button
                 type="button"
                 class="btn-icon"
-                onclick={() => editor?.chain().focus().toggleUnderline().run()}
+                onclick={() => (editor?.chain().focus() as any).toggleUnderline().run()}
                 class:ring-2={editor?.isActive("underline")}
                 aria-label="Underline"
             >

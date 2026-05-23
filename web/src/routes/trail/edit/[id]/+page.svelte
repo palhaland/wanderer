@@ -2453,7 +2453,7 @@
                 oncontextmenu={(target) => handleMapContextMenu(target)}
                 onsegmentclick={(data) => handleSegmentClick(data)}
                 onsegmentdragend={(data) => handleSegmentDragEnd(data)}
-                mapOptions={{ canvasContextAttributes: { preserveDrawingBuffer: true } }}
+                mapOptions={{ canvasContextAttributes: { preserveDrawingBuffer: true } } as any}
                 {buildPoiAnchorAction}
             ></MapWithElevationMaplibre>
         </div>

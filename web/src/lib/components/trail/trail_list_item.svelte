@@ -240,8 +240,8 @@
                     id="trail-selected"
                     type="checkbox"
                     class="w-4 h-4 bg-input-background accent-primary border-input-border focus:ring-input-ring focus:ring-2"
-                    bind:checked={selected}
-                    onclick={(e) => handleInputClick(e)}
+                    checked={selected}
+                    onchange={(e) => handleInputClick(e)}
                 />
             </div>
         {/if}

@@ -7,11 +7,12 @@
         type MergeSettings,
     } from "$lib/components/trail/trail_merge_modal.svelte";
     import MapWithElevationMaplibre from "$lib/components/trail/map_with_elevation_maplibre.svelte";
-    import type { Trail } from "$lib/models/trail";
+    import { Trail } from "$lib/models/trail";
     import {
         type TrailMergeSuggestGroup,
         trail_merge,
         trail_merge_suggest_groups,
+        trail_merge_perfect_track,
     } from "$lib/stores/trail_merge_api";
     import { translateTrailMergeError } from "$lib/stores/trail_merge_i18n";
     import {
@@ -19,7 +20,8 @@
         processMergeQueue,
         type Merge,
     } from "$lib/stores/trail_merge_store.svelte";
-    import { trails_show } from "$lib/stores/trail_store";
+    import { trails_show, trails_create } from "$lib/stores/trail_store";
+    import { show_toast } from "$lib/stores/toast_store.svelte";
     import { handleFromRecordWithIRI } from "$lib/util/activitypub_util";
     import { APIError } from "$lib/util/api_util";
     import { _ } from "svelte-i18n";
@@ -29,6 +31,8 @@
         trails: Trail[];
         targetTrail?: Trail;
         suggestedTargetTrailId: string;
+        selectedTrailIds: string[];
+        highlightedTrailId: string | null;
     };
 
     let loading = $state(true);
@@ -39,8 +43,24 @@
     let mapTrailsByGroupId = $state<Record<string, Trail[]>>({});
     let trailById = $state<Record<string, Trail>>({});
     let trailWithGpxById = $state<Record<string, Trail>>({});
+    let perfectTrackGpxByGroupId = $state<Record<string, string>>({});
+    let loadingPerfectTrackGroupId = $state<string | null>(null);
+    let activeMergeGroup = $state<SimilarTrailGroupView | null>(null);
 
     let trailMergeModal: TrailMergeModal;
+
+    const trailColors = [
+        "#3549bb", // blue
+        "#ff7f0e", // orange
+        "#2ca02c", // green
+        "#d62728", // red
+        "#9467bd", // purple
+        "#8c564b", // brown
+        "#e377c2", // pink
+        "#373642", // gray
+        "#fae455", // yellow
+        "#17becf", // teal
+    ];
 
     onMount(async () => {
         await loadGroups();
@@ -84,6 +104,8 @@
                         trails,
                         targetTrail: trails.find((trail) => trail.id === group.targetTrailId),
                         suggestedTargetTrailId: group.targetTrailId,
+                        selectedTrailIds: [...group.trailIds],
+                        highlightedTrailId: null,
                     } satisfies SimilarTrailGroupView;
                 }),
             );
@@ -149,7 +171,11 @@
     }
 
     async function openMergeGroupModal(group: SimilarTrailGroupView) {
-        await trailMergeModal.openModal(group.trails, {
+        activeMergeGroup = group;
+        const selectedTrails = group.trails.filter((trail) =>
+            trail.id ? group.selectedTrailIds.includes(trail.id) : false
+        );
+        await trailMergeModal.openModal(selectedTrails, {
             fixedTargetTrailId: group.targetTrailId,
         });
     }
@@ -160,10 +186,108 @@
                 return group;
             }
 
-            return {
+            let nextSelected = group.selectedTrailIds;
+            if (!nextSelected.includes(targetTrailId)) {
+                nextSelected = [...nextSelected, targetTrailId];
+            }
+
+            const updatedGroup = {
                 ...group,
                 targetTrailId,
                 targetTrail: group.trails.find((trail) => trail.id === targetTrailId),
+                selectedTrailIds: nextSelected,
+            };
+
+            if (perfectTrackGpxByGroupId[groupId]) {
+                generatePerfectTrackForGroup(updatedGroup);
+            }
+
+            return updatedGroup;
+        });
+    }
+
+    async function generatePerfectTrackForGroup(group: SimilarTrailGroupView) {
+        loadingPerfectTrackGroupId = group.groupId;
+        try {
+            console.log("[SimilarTrails] Generating perfect track for group", group.groupId, "with trails:", group.selectedTrailIds);
+            const gpx = await trail_merge_perfect_track(group.selectedTrailIds);
+            console.log("[SimilarTrails] Perfect track loaded, GPX length:", gpx?.length, "starts with:", gpx?.substring(0, 100));
+            perfectTrackGpxByGroupId = {
+                ...perfectTrackGpxByGroupId,
+                [group.groupId]: gpx,
+            };
+        } catch (error) {
+            console.error("[SimilarTrails] Failed to load perfect track", error);
+            const next = { ...perfectTrackGpxByGroupId };
+            delete next[group.groupId];
+            perfectTrackGpxByGroupId = next;
+        } finally {
+            loadingPerfectTrackGroupId = null;
+        }
+    }
+
+    async function togglePerfectTrack(group: SimilarTrailGroupView) {
+        if (perfectTrackGpxByGroupId[group.groupId]) {
+            const next = { ...perfectTrackGpxByGroupId };
+            delete next[group.groupId];
+            perfectTrackGpxByGroupId = next;
+            return;
+        }
+
+        if (openMapGroupId !== group.groupId) {
+            await toggleMap(group);
+        }
+
+        await generatePerfectTrackForGroup(group);
+    }
+
+    async function toggleTrailSelection(group: SimilarTrailGroupView, trailId: string) {
+        if (group.targetTrailId === trailId) {
+            return;
+        }
+
+        let updatedGroup: SimilarTrailGroupView | null = null;
+
+        groups = groups.map((g) => {
+            if (g.groupId !== group.groupId) {
+                return g;
+            }
+
+            const isSelected = g.selectedTrailIds.includes(trailId);
+            const nextSelected = isSelected
+                ? g.selectedTrailIds.filter((id) => id !== trailId)
+                : [...g.selectedTrailIds, trailId];
+
+            let nextHighlighted = g.highlightedTrailId;
+            if (isSelected && g.highlightedTrailId === trailId) {
+                nextHighlighted = null;
+            } else if (!isSelected) {
+                nextHighlighted = trailId;
+            }
+
+            updatedGroup = {
+                ...g,
+                selectedTrailIds: nextSelected,
+                highlightedTrailId: nextHighlighted,
+            };
+            return updatedGroup;
+        });
+
+        if (updatedGroup && perfectTrackGpxByGroupId[group.groupId]) {
+            await generatePerfectTrackForGroup(updatedGroup);
+        }
+    }
+
+    function toggleHighlight(group: SimilarTrailGroupView, trailId: string) {
+        if (!group.selectedTrailIds.includes(trailId)) return;
+
+        groups = groups.map((g) => {
+            if (g.groupId !== group.groupId) {
+                return g;
+            }
+            return {
+                ...g,
+                highlightedTrailId: g.highlightedTrailId === trailId ? null : trailId,
             };
         });
     }
@@ -178,13 +302,43 @@
             trailTarget = await trails_show(trailTarget.id);
         }
 
-        for (const sourceTrail of selection.sourceTrails) {
-            if (sourceTrail.id === trailTarget.id) {
+        let finalTarget = trailTarget;
+        let sources = [...selection.sourceTrails];
+
+        const perfectTrackGpx = activeMergeGroup ? perfectTrackGpxByGroupId[activeMergeGroup.groupId] : undefined;
+
+        if (perfectTrackGpx) {
+            try {
+                const newTrail = Trail.from(trailTarget);
+                if (newTrail.expand) {
+                    newTrail.expand.waypoints_via_trail = [];
+                    newTrail.expand.summit_logs_via_trail = [];
+                }
+                const gpxFile = new File([perfectTrackGpx], `${trailTarget.name || "trail"}.gpx`, { type: "application/gpx+xml" });
+
+                finalTarget = await trails_create(newTrail, [], gpxFile);
+
+                if (!sources.some((s) => s.id === trailTarget.id)) {
+                    sources.push(trailTarget);
+                }
+            } catch (err) {
+                console.error("Failed to create new trail for perfect track", err);
+                show_toast({
+                    type: "error",
+                    icon: "close",
+                    text: err instanceof Error ? err.message : "Failed to create new trail",
+                });
+                return;
+            }
+        }
+
+        for (const sourceTrail of sources) {
+            if (sourceTrail.id === finalTarget.id) {
                 continue;
             }
 
             const mergeJob: Merge = {
-                trailTarget,
+                trailTarget: finalTarget,
                 trailSource: sourceTrail,
                 progress: 0,
                 status: "enqueued",
@@ -210,7 +364,14 @@
             (merge) => merge.status === "success",
         ).length;
 
-        if (successfulThisRun > 0 && settings.delete) {
+        if (successfulThisRun > 0) {
+            if (perfectTrackGpx) {
+                if (activeMergeGroup) {
+                    const next = { ...perfectTrackGpxByGroupId };
+                    delete next[activeMergeGroup.groupId];
+                    perfectTrackGpxByGroupId = next;
+                }
+            }
             await loadGroups();
         }
     }
@@ -272,11 +433,27 @@
                                 {/if}
                             </div>
                             <div class="flex flex-col items-end gap-3 shrink-0">
-                                <button class="btn-secondary" onclick={() => toggleMap(group)}>
-                                    {openMapGroupId === group.groupId
-                                        ? $_("similar-trails-hide-map")
-                                        : $_("similar-trails-show-map")}
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button 
+                                        class={`btn-secondary ${perfectTrackGpxByGroupId[group.groupId] ? 'border-primary text-primary bg-primary/5' : ''}`} 
+                                        onclick={() => togglePerfectTrack(group)}
+                                        disabled={loadingPerfectTrackGroupId === group.groupId}
+                                    >
+                                        {#if loadingPerfectTrackGroupId === group.groupId}
+                                            <div class="spinner spinner-xs mr-2"></div>
+                                        {:else}
+                                            <i class="fa fa-sparkles mr-2"></i>
+                                        {/if}
+                                        {perfectTrackGpxByGroupId[group.groupId]
+                                            ? $_("similar-trails-hide-perfect")
+                                            : $_("similar-trails-show-perfect")}
+                                    </button>
+                                    <button class="btn-secondary" onclick={() => toggleMap(group)}>
+                                        {openMapGroupId === group.groupId
+                                            ? $_("similar-trails-hide-map")
+                                            : $_("similar-trails-show-map")}
+                                    </button>
+                                </div>
                                 <button class="btn-primary" onclick={() => openMergeGroupModal(group)}>
                                     {$_("similar-trails-merge-group")}
                                 </button>
@@ -294,8 +471,17 @@
                                 {:else if mapTrailsByGroupId[group.groupId]}
                                     <div class="h-[26rem] rounded-2xl overflow-hidden border border-input-border">
                                         <MapWithElevationMaplibre
-                                            trails={mapTrailsByGroupId[group.groupId]}
+                                            trails={mapTrailsByGroupId[group.groupId] ?? []}
+                                            visibleTrailIds={group.selectedTrailIds}
+                                            perfectTrackGpx={perfectTrackGpxByGroupId[group.groupId]}
+                                            useDistinctColors={true}
+                                            highlightedTrailId={group.highlightedTrailId}
                                             showTerrain={true}
+                                            ontrailclick={(trail) => {
+                                                if (trail.id) {
+                                                    toggleTrailSelection(group, trail.id);
+                                                }
+                                            }}
                                         />
                                     </div>
                                 {/if}
@@ -304,13 +490,41 @@
 
                         <div class="space-y-2">
                             {#each group.trails as trail}
-                                <div class="relative group">
-                                    <a
-                                        class="block"
-                                        href={`/trail/view/${handleFromRecordWithIRI(trail)}/${trail.id}`}
-                                        onclick={(event) => {
-                                            event.preventDefault();
-                                            goto(`/trail/view/${handleFromRecordWithIRI(trail)}/${trail.id}`);
+                                <div 
+                                    class="flex items-center gap-3 rounded-2xl border border-input-border overflow-hidden bg-card transition-colors relative group similar-trail-card-container"
+                                    class:opacity-50={!group.selectedTrailIds.includes(trail.id ?? "")}
+                                    class:bg-secondary-hover={group.highlightedTrailId === trail.id}
+                                    style="border-left: 6px solid {
+                                        group.selectedTrailIds.includes(trail.id ?? "")
+                                            ? trailColors[group.trails.findIndex(t => t.id === trail.id) % trailColors.length]
+                                            : 'transparent'
+                                    }"
+                                >
+                                    <!-- Left Checkbox -->
+                                    <div class="ps-4 py-4 flex items-center justify-center shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={group.selectedTrailIds.includes(trail.id ?? "")}
+                                            disabled={trail.id === group.targetTrailId}
+                                            onchange={(e) => {
+                                                e.stopPropagation();
+                                                if (trail.id) {
+                                                    toggleTrailSelection(group, trail.id);
+                                                }
+                                            }}
+                                            class="w-5 h-5 rounded border-input-border text-primary focus:ring-primary disabled:opacity-50"
+                                        />
+                                    </div>
+
+                                    <!-- Clickable body toggling highlight -->
+                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                    <div
+                                        class="flex-1 min-w-0 cursor-pointer py-2"
+                                        onclick={() => {
+                                            if (trail.id) {
+                                                toggleHighlight(group, trail.id);
+                                            }
                                         }}
                                     >
                                         <TrailListItem
@@ -319,26 +533,43 @@
                                             hovered={false}
                                             showDescription={false}
                                         />
-                                    </a>
-                                    <button
-                                        type="button"
-                                        class={`absolute bottom-4 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-all ${
-                                            trail.id === group.targetTrailId
-                                                ? "bg-primary text-white border-primary opacity-100"
-                                                : "bg-background/95 text-gray-500 border-input-border opacity-0 group-hover:opacity-100 hover:border-primary hover:text-primary"
-                                        }`}
-                                        onclick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            if (trail.id) {
-                                                updateGroupTarget(group.groupId, trail.id);
-                                            }
-                                        }}
-                                        aria-label={$_("similar-trails-set-target")}
-                                        title={$_("similar-trails-set-target")}
-                                    >
-                                        <i class="fa fa-flag-checkered"></i>
-                                    </button>
+                                    </div>
+
+                                    <!-- Right action buttons -->
+                                    <div class="flex items-center gap-2 pe-4 py-4 shrink-0">
+                                        <!-- View details link (new tab) -->
+                                        <a
+                                            href={`/trail/view/${handleFromRecordWithIRI(trail)}/${trail.id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onclick={(e) => e.stopPropagation()}
+                                            class="flex h-9 w-9 items-center justify-center rounded-full border border-input-border bg-background text-gray-500 hover:border-primary hover:text-primary transition-all shadow-sm opacity-0 group-hover:opacity-100"
+                                            title={$_("similar-trails-view-details") || "View Details"}
+                                        >
+                                            <i class="fa fa-arrow-up-right-from-square"></i>
+                                        </a>
+
+                                        <!-- Checkered flag button (target selector) -->
+                                        <button
+                                            type="button"
+                                            class={`flex h-9 w-9 items-center justify-center rounded-full border shadow-sm transition-all ${
+                                                trail.id === group.targetTrailId
+                                                    ? "bg-primary text-white border-primary opacity-100"
+                                                    : "bg-background text-gray-500 border-input-border opacity-0 group-hover:opacity-100 hover:border-primary hover:text-primary"
+                                            }`}
+                                            onclick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                if (trail.id) {
+                                                    updateGroupTarget(group.groupId, trail.id);
+                                                }
+                                            }}
+                                            aria-label={$_("similar-trails-set-target")}
+                                            title={$_("similar-trails-set-target")}
+                                        >
+                                            <i class="fa fa-flag-checkered"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             {/each}
                         </div>
@@ -354,3 +585,17 @@
     onmerge={(settings, selection) => mergeGroup(settings, selection)}
 />
 <MergeDialog />
+
+<style>
+    .similar-trail-card-container :global(li) {
+        border: none;
+        border-radius: 0;
+        padding-left: 0;
+        padding-right: 0;
+        background: transparent;
+        cursor: default;
+    }
+    .similar-trail-card-container :global(li:hover) {
+        background: transparent;
+    }
+</style>

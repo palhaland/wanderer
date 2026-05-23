@@ -589,6 +589,8 @@
   "similar-trails-hide-map": "Hide map",
   "similar-trails-merge-group": "Merge trails",
   "similar-trails-open-trail": "Open trail",
+  "similar-trails-show-perfect": "Show perfect track",
+  "similar-trails-hide-perfect": "Hide perfect track",
   "similar-trails-map-loading": "Loading map data...",
   "similar-trails-map-title": "Group map",
   "similar-trails-indirect-hint": "Not every trail pair in this group meets the similarity requirements. Please check the map before merging to confirm that all trails really belong together.",

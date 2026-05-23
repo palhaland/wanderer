@@ -3,6 +3,8 @@ package trailmerge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"github.com/tkrajina/gpxgo/gpx"
 
 	"pocketbase/federation"
 	"pocketbase/util"
@@ -252,6 +255,54 @@ func Merge(app core.App, client meilisearch.ServiceManager, ctx context.Context,
 	}
 
 	return nil
+}
+
+func GeneratePerfectTrack(app core.App, trailIDs []string) (*gpx.GPX, error) {
+	allPoints := make([][]util.TrailPoint, 0, len(trailIDs))
+	for _, id := range trailIDs {
+		trail, err := app.FindRecordById("trails", id)
+		if err != nil {
+			continue
+		}
+		points, err := util.TrailCoordinatesPoints(app, trail)
+		if err != nil {
+			continue
+		}
+		allPoints = append(allPoints, points)
+	}
+
+	if len(allPoints) == 0 {
+		return nil, errors.New("no valid tracks found")
+	}
+
+	perfectPoints := util.AverageTrailPoints(allPoints)
+	if len(perfectPoints) == 0 {
+		return nil, errors.New("failed to average tracks")
+	}
+
+	gpxTrk := &gpx.GPXTrack{
+		Segments: []gpx.GPXTrackSegment{
+			{
+				Points: make([]gpx.GPXPoint, len(perfectPoints)),
+			},
+		},
+	}
+
+	for i, pt := range perfectPoints {
+		gpxTrk.Segments[0].Points[i] = gpx.GPXPoint{
+			Point: gpx.Point{
+				Latitude:  pt.Lat,
+				Longitude: pt.Lon,
+				Elevation: *gpx.NewNullableFloat64(pt.Ele),
+			},
+		}
+	}
+
+	return &gpx.GPX{
+		Version: "1.1",
+		Creator: "wanderer",
+		Tracks:  []gpx.GPXTrack{*gpxTrk},
+	}, nil
 }
 
 func CanMerge(app core.App, actorID string, source *core.Record, target *core.Record, deleteSource bool) bool {
@@ -963,8 +1014,40 @@ func findMaintenanceCandidateTrails(app core.App, actorID string) ([]*core.Recor
 		trailMap[trailID] = trail
 	}
 
+	summitLogs, err := app.FindRecordsByFilter(
+		"summit_logs",
+		"gpx!=''",
+		"",
+		-1,
+		0,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	summitGPXToTrailID := make(map[string]string)
+	for _, log := range summitLogs {
+		hash, err := recordGPXHash(app, log)
+		if err != nil || hash == "" {
+			continue
+		}
+		summitGPXToTrailID[hash] = log.GetString("trail")
+	}
+
 	trails := make([]*core.Record, 0, len(trailMap))
 	for _, trail := range trailMap {
+		hash, err := recordGPXHash(app, trail)
+		if err != nil {
+			return nil, err
+		}
+		if hash != "" {
+			if targetTrailID, exists := summitGPXToTrailID[hash]; exists && targetTrailID != trail.Id {
+				// This candidate trail's GPX is already linked to a summit log of a different trail.
+				// Therefore, it has been merged and should be excluded.
+				continue
+			}
+		}
 		trails = append(trails, trail)
 	}
 
@@ -977,6 +1060,32 @@ func findMaintenanceCandidateTrails(app core.App, actorID string) ([]*core.Recor
 	})
 
 	return trails, nil
+}
+
+func recordGPXHash(app core.App, record *core.Record) (string, error) {
+	gpxPath := record.GetString("gpx")
+	if gpxPath == "" {
+		return "", nil
+	}
+
+	fsys, err := app.NewFilesystem()
+	if err != nil {
+		return "", err
+	}
+	defer fsys.Close()
+
+	reader, err := fsys.GetReader(record.BaseFilesPath() + "/" + gpxPath)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, reader); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func prepareMaintenanceTrailCandidate(app core.App, trail *core.Record) (maintenanceTrailCandidate, bool, error) {

@@ -75,7 +75,7 @@ export async function GET(event: RequestEvent) {
 
     try {
         const r = await event.fetch(fileURL)
-        return new Response(r.body, { headers: r.headers });
+        return new Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers });
     } catch (e: any) {
         throw error(500, e);
     }

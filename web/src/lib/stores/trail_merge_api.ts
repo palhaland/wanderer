@@ -108,3 +108,26 @@ export async function trail_merge(sourceTrailId: string, targetTrailId: string, 
 
     return await response.json();
 }
+
+export async function trail_merge_perfect_track(trailIds: string[]) {
+    const response = await fetch("/api/v1/trail-merge/perfect-track", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            trailIds,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new APIError(response.status, error.message, error.detail);
+    }
+
+    const data = await response.json();
+    if (data.error) {
+        throw new Error(data.error);
+    }
+    return data.gpx as string;
+}

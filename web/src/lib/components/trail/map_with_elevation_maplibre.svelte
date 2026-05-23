@@ -74,6 +74,11 @@
         oninit?: (map: M.Map) => void;
         autoGeolocateOnDrawing?: boolean;
         buildPoiAnchorAction?: OverpassPopupActionFactory;
+        perfectTrackGpx?: string;
+        useDistinctColors?: boolean;
+        highlightedTrailId?: string | null;
+        visibleTrailIds?: string[];
+        ontrailclick?: (trail: Trail) => void;
     }
 
     let {
@@ -109,6 +114,11 @@
         oninit,
         autoGeolocateOnDrawing = false,
         buildPoiAnchorAction = undefined,
+        perfectTrackGpx = undefined,
+        useDistinctColors = false,
+        highlightedTrailId = null,
+        visibleTrailIds = undefined,
+        ontrailclick = undefined,
     }: Props = $props();
 
     let mapContainer: HTMLDivElement;
@@ -146,13 +156,20 @@
     let gpxDataMap = $derived(mapData[0]);
     let clusterData = $derived(mapData[1]);
     let previewData = $derived(mapData[2]);
-
     $effect(() => {
-        // Track dependencies for Svelte 5
+        // Access reactive properties at the root of the effect to ensure Svelte tracks them
         mapData;
+        const currentGpx = perfectTrackGpx;
+        const currentColors = useDistinctColors;
+        const isLoaded = mapLoaded;
+        const currentMap = map;
+        visibleTrailIds; // track changes in visibility
 
-        if (map && mapLoaded) {
-            untrack(() => initMap(map?.loaded() ?? false));
+        console.log("[MapDebug] Effect triggered. perfectTrackGpx exists:", !!currentGpx, "Length:", currentGpx ? currentGpx.length : 0, "mapLoaded:", isLoaded, "hasMap:", !!currentMap);
+
+        if (currentMap && isLoaded) {
+            untrack(() => initMap(currentMap.loaded(), currentGpx, currentColors));
+            applyHighlightState();
         }
     });
     $effect(() => {
@@ -201,6 +218,59 @@
             refreshElevationProfile();
         });
     });
+    $effect(() => {
+        highlightedTrailId;
+        if (map && mapLoaded) {
+            untrack(() => applyHighlightState());
+        }
+    });
+
+    function applyHighlightState() {
+        trails.forEach((t) => {
+            if (!t.id || !map?.getLayer(t.id)) return;
+            const isSelected = !visibleTrailIds || visibleTrailIds.includes(t.id);
+
+            // Markers visibility
+            const markers = layerManager.layers[t.id]?.markers;
+            if (isSelected) {
+                if (markers?.start) {
+                    markers.start.addTo(map);
+                }
+                if (markers?.end && !clusterTrails) {
+                    markers.end.addTo(map);
+                }
+            } else {
+                markers?.start?.remove();
+                markers?.end?.remove();
+            }
+
+            // Path styling
+            if (!isSelected) {
+                map.setPaintProperty(t.id, "line-width", 3);
+                map.setPaintProperty(t.id, "line-opacity", 0.15);
+            } else if (highlightedTrailId) {
+                if (t.id === highlightedTrailId) {
+                    map.setPaintProperty(t.id, "line-width", 9);
+                    map.setPaintProperty(t.id, "line-opacity", 1.0);
+                    try {
+                        if (map.getLayer("perfect-track")) {
+                            map.moveLayer(t.id, "perfect-track");
+                        } else {
+                            map.moveLayer(t.id);
+                        }
+                    } catch (e) {
+                        console.warn("failed to move highlighted layer", e);
+                    }
+                } else {
+                    map.setPaintProperty(t.id, "line-width", 5);
+                    map.setPaintProperty(t.id, "line-opacity", 0.4);
+                }
+            } else {
+                map.setPaintProperty(t.id, "line-width", 5);
+                map.setPaintProperty(t.id, "line-opacity", 1.0);
+            }
+        });
+    }
 
     function getData(
         trails: Trail[],
@@ -225,8 +295,15 @@
                 let fc: FeatureCollection | null = null;
                 if (t.expand?.gpx) {
                     fc = t.expand.gpx.toGeoJSON();
-                } else if (t.expand?.gpx_data) {
-                    fc = GPX.parse(t.expand.gpx_data).toGeoJSON();
+                } else if (t.expand?.gpx_data && t.expand.gpx_data.trim().startsWith("<")) {
+                    try {
+                        const parsed = GPX.parse(t.expand.gpx_data);
+                        if (parsed && !(parsed instanceof Error)) {
+                            fc = parsed.toGeoJSON();
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse GPX data for trail", t.id, e);
+                    }
                 }
 
                 if (fc) {
@@ -282,7 +359,7 @@
         return [gpxDataMap, clusterData, previewData];
     }
 
-    function initMap(mapLoaded: boolean) {
+    function initMap(mapLoaded: boolean, currentPerfectGpx?: string, distinctColors?: boolean) {
         if (!map || !layerManager) {
             return;
         }
@@ -290,13 +367,34 @@
         refreshElevationProfile();
         syncElevationProfileVisibility();
 
-        trails.forEach((t) => {
+        trails.forEach((t, i) => {
             const layerId = t.id!;
-            addTrailLayer(t, layerId, 0, gpxDataMap[layerId]);
+            addTrailLayer(t, layerId, i, gpxDataMap[layerId], distinctColors);
         });
+
+        console.log("[MapDebug] initMap: perfectTrackGpx present:", !!currentPerfectGpx, "starts with <:", currentPerfectGpx?.trim().startsWith("<"), "length:", currentPerfectGpx?.length);
+        if (currentPerfectGpx && currentPerfectGpx.trim().startsWith("<")) {
+            try {
+                const g = GPX.parse(currentPerfectGpx);
+                if (g && !(g instanceof Error)) {
+                    console.log("[MapDebug] initMap: calling addPerfectTrackLayer");
+                    addPerfectTrackLayer(g.toGeoJSON());
+                } else {
+                    console.warn("[MapDebug] initMap: parsed GPX is invalid or error:", g);
+                }
+            } catch (e) {
+                console.error("[MapDebug] initMap: Failed to parse perfect track GPX", e);
+            }
+        } else {
+            console.log("[MapDebug] initMap: removing perfect track layer");
+            removePerfectTrackLayer();
+        }
 
         Object.entries(layerManager.layers).forEach(([id, layer]) => {
             if (!(layer instanceof TrailLayer)) {
+                return;
+            }
+            if (id === "perfect-track") {
                 return;
             }
             const isStillVisible = trails.some((t) => t.id === id);
@@ -379,7 +477,11 @@
             maxX = -Infinity,
             maxY = -Infinity;
 
-        for (const [xMin, yMin, xMax, yMax] of Object.values(gpxDataMap)
+        const visibleData = Object.entries(gpxDataMap)
+            .filter(([id]) => !visibleTrailIds || visibleTrailIds.includes(id))
+            .map(([_, fc]) => fc);
+
+        for (const [xMin, yMin, xMax, yMax] of visibleData
             .filter((d) => d.bbox !== undefined)
             .map((d) => d.bbox!)) {
             minX = Math.min(minX, xMin);
@@ -440,27 +542,28 @@
         id: string,
         index: number,
         geojson: GeoJSON.FeatureCollection | null | undefined,
+        distinctColors?: boolean,
     ) {
         if (!geojson || !map) {
             return;
         }
+        let color = trailColors[0];
+        if (distinctColors ?? useDistinctColors) {
+            color = trailColors[index % trailColors.length];
+        } else if (clusterTrails) {
+            color = trailColors[hashStringToIndex(id ?? "", trailColors.length)];
+        }
+
         const trailLayer = new TrailLayer(
             id,
             geojson,
-            trailColors[
-                clusterTrails
-                    ? hashStringToIndex(id ?? "", trailColors.length)
-                    : index % trailColors.length
-            ],
+            color,
             {
                 listeners: {
                     onEnter: (e) =>
                         highlightTrail(id, trails[activeTrail ?? -1]?.id == id),
 
                     onLeave: (e) => unHighlightTrail(id),
-                    onMouseUp: (e) => {
-                        activeTrail = trails.findIndex((t) => t.id == trail.id);
-                    },
                     onMouseMove: moveCrosshairToCursorPosition,
                     onMouseDown: (e) => handleDragStart(e, id),
                 },
@@ -472,6 +575,44 @@
         if (!drawing && !clusterTrails) {
             addStartEndMarkers(trail, id, geojson);
         }
+    }
+
+    function addPerfectTrackLayer(geojson: GeoJSON.FeatureCollection) {
+        if (!geojson || !map) {
+            console.log("[MapDebug] addPerfectTrackLayer abort: geojson or map missing", { hasGeojson: !!geojson, hasMap: !!map });
+            return;
+        }
+
+        const id = "perfect-track";
+        console.log("[MapDebug] addPerfectTrackLayer: adding layer", id, "with features:", geojson.features?.length);
+        const layer = new TrailLayer(id, geojson, "#ffd700", {}); // Gold
+
+        // Customize the layer for a "perfect" look
+        if (layer.spec.layers) {
+            (layer.spec.layers[0] as any).paint["line-width"] = 8;
+            (layer.spec.layers[0] as any).paint["line-opacity"] = 0.8;
+            (layer.spec.layers[0] as any).layout = {
+                "line-cap": "round",
+                "line-join": "round",
+            };
+        }
+
+        layerManager.addLayer(id, layer);
+        if (map.getLayer(id)) {
+            try {
+                console.log("[MapDebug] addPerfectTrackLayer: moving layer to top");
+                map.moveLayer(id);
+            } catch (e) {
+                console.warn("[MapDebug] failed to move perfect track layer", e);
+            }
+        } else {
+            console.warn("[MapDebug] perfect-track layer was not found on the map after addLayer!");
+        }
+    }
+
+    function removePerfectTrackLayer() {
+        console.log("[MapDebug] removePerfectTrackLayer called");
+        layerManager.removeLayer("perfect-track");
     }
 
     function addClusterLayer(geojson: FeatureCollection) {
@@ -594,11 +735,11 @@
         if (showElevationMarker) {
             elevationMarker.setOpacity("1");
         }
-        map?.setPaintProperty(id, "line-width", 7);
         if (map?.getLayer(id)) {
+            map.setPaintProperty(id, "line-width", id === highlightedTrailId ? 11 : 7);
+            map.setPaintProperty(id, "line-opacity", 1.0);
             hoveringTrail = true;
         }
-        // map?.setPaintProperty(id, "line-color", "#2766e3");
     }
 
     export function unHighlightTrail(id: string | undefined) {
@@ -609,9 +750,23 @@
         epc?.hideCrosshair();
         hoveringTrail = false;
         if (map?.getLayer(id)) {
-            map?.setPaintProperty(id, "line-width", 5);
+            const isSelected = !visibleTrailIds || visibleTrailIds.includes(id);
+            if (!isSelected) {
+                map.setPaintProperty(id, "line-width", 3);
+                map.setPaintProperty(id, "line-opacity", 0.15);
+            } else if (highlightedTrailId) {
+                if (id === highlightedTrailId) {
+                    map.setPaintProperty(id, "line-width", 9);
+                    map.setPaintProperty(id, "line-opacity", 1.0);
+                } else {
+                    map.setPaintProperty(id, "line-width", 5);
+                    map.setPaintProperty(id, "line-opacity", 0.4);
+                }
+            } else {
+                map.setPaintProperty(id, "line-width", 5);
+                map.setPaintProperty(id, "line-opacity", 1.0);
+            }
         }
-        // map?.setPaintProperty(id, "line-color", "#648ad5");
     }
 
     function hasTrailDetails(trail: Trail | undefined): trail is Trail {
@@ -1036,6 +1191,34 @@
             if (hoveringTrail && drawing) {
                 return;
             }
+            if (!drawing) {
+                const trailLayerIds = trails
+                    .map((t) => t.id)
+                    .filter((id): id is string => typeof id === "string" && !!map!.getLayer(id));
+
+                if (trailLayerIds.length > 0) {
+                    const bbox: [M.PointLike, M.PointLike] = [
+                        [e.point.x - 8, e.point.y - 8],
+                        [e.point.x + 8, e.point.y + 8],
+                    ];
+                    const features = map!.queryRenderedFeatures(bbox, {
+                        layers: trailLayerIds,
+                    });
+
+                    if (features.length > 0) {
+                        const clickedLayerId = features[0].layer.id;
+                        const clickedTrail = trails.find((t) => t.id === clickedLayerId);
+                        if (clickedTrail) {
+                            if (ontrailclick) {
+                                ontrailclick(clickedTrail);
+                            } else {
+                                activeTrail = trails.findIndex((t) => t.id === clickedTrail.id);
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
             onclick?.(e);
         });
 
@@ -1045,7 +1228,7 @@
 
         map.on("load", () => {
             layerManager.init();
-            initMap(true);
+            initMap(true, perfectTrackGpx, useDistinctColors);
             oninit?.(map!);
             mapLoaded = true;
         });

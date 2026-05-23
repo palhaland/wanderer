@@ -37,7 +37,7 @@
             dragPan: false,
             scrollZoom: false,
             canvasContextAttributes: { preserveDrawingBuffer: true }
-        });
+        } as any);
     }
 
     const hasTrailState = $derived(

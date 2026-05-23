@@ -683,6 +683,9 @@ export async function fetchGPX(trail: { gpx?: string } & Record<string, any>, f:
     }
     const gpxUrl = getFileURL(trail, trail.gpx);
     const response: Response = await f(gpxUrl);
+    if (!response.ok) {
+        return "";
+    }
     const gpxData = await response.text();
 
     return gpxData

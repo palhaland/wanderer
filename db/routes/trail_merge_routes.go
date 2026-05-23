@@ -8,12 +8,17 @@ import (
 	"github.com/meilisearch/meilisearch-go"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/tkrajina/gpxgo/gpx"
 )
 
 type mergeExecuteRequest struct {
 	SourceTrailID string                   `json:"sourceTrailId"`
 	TargetTrailID string                   `json:"targetTrailId"`
 	Settings      trailmerge.MergeSettings `json:"settings"`
+}
+
+type perfectTrackRequest struct {
+	TrailIDs []string `json:"trailIds"`
 }
 
 func TrailMergeSuggest(e *core.RequestEvent) error {
@@ -87,4 +92,34 @@ func TrailMerge(client meilisearch.ServiceManager) func(e *core.RequestEvent) er
 			"acknowledged": true,
 		})
 	}
+}
+
+func TrailMergePerfectTrack(e *core.RequestEvent) error {
+	if e.Auth == nil {
+		return apis.NewUnauthorizedError("trail_merge_auth_required", nil)
+	}
+
+	var request perfectTrackRequest
+	if err := e.BindBody(&request); err != nil {
+		return apis.NewBadRequestError("trail_merge_invalid_request", err)
+	}
+
+	gpxData, err := trailmerge.GeneratePerfectTrack(e.App, request.TrailIDs)
+	if err != nil {
+		return e.JSON(http.StatusOK, map[string]any{
+			"error": err.Error(),
+		})
+	}
+
+	xml, err := gpxData.ToXml(gpx.ToXmlParams{
+		Version: "1.1",
+		Indent:  true,
+	})
+	if err != nil {
+		return apis.NewBadRequestError(err.Error(), err)
+	}
+
+	return e.JSON(http.StatusOK, map[string]any{
+		"gpx": string(xml),
+	})
 }
