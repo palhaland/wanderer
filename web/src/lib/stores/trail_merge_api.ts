@@ -131,3 +131,25 @@ export async function trail_merge_perfect_track(trailIds: string[]) {
     }
     return data.gpx as string;
 }
+
+export async function trail_merge_bulk(sourceTrailIds: string[], targetTrailId: string, settings: MergeSettings, generatePerfectTrack: boolean) {
+    const response = await fetch("/api/v1/trail-merge/bulk", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+            sourceTrailIds,
+            targetTrailId,
+            settings,
+            generatePerfectTrack,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new APIError(response.status, error.message, error.detail);
+    }
+
+    return await response.json() as { acknowledged: boolean; targetTrailId: string };
+}

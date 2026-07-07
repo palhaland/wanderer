@@ -13,6 +13,7 @@
         trail_merge,
         trail_merge_suggest_groups,
         trail_merge_perfect_track,
+        trail_merge_bulk,
     } from "$lib/stores/trail_merge_api";
     import { translateTrailMergeError } from "$lib/stores/trail_merge_i18n";
     import {
@@ -298,64 +299,26 @@
             return;
         }
 
-        if (!trailTarget.expand) {
-            trailTarget = await trails_show(trailTarget.id);
-        }
+        let sources = selection.sourceTrails.filter((s) => s.id !== trailTarget.id);
+        const sourceTrailIds = sources.map((s) => s.id!);
+        const targetTrailId = trailTarget.id;
 
-        let finalTarget = trailTarget;
-        let sources = [...selection.sourceTrails];
+        const hasPerfectTrack = activeMergeGroup ? perfectTrackGpxByGroupId[activeMergeGroup.groupId] !== undefined : false;
 
-        const perfectTrackGpx = activeMergeGroup ? perfectTrackGpxByGroupId[activeMergeGroup.groupId] : undefined;
+        const mergeJob: Merge = {
+            trailTarget,
+            trailSource: { name: $_("similar-trails-bulk-merge-source-name") || "Duplicate Trails" } as any,
+            progress: 0,
+            status: "enqueued",
+            settings,
+            function: async (target, source, mergeSettings, onProgress) => {
+                onProgress?.(0.2);
+                await trail_merge_bulk(sourceTrailIds, targetTrailId, mergeSettings, hasPerfectTrack);
+                onProgress?.(1);
+            },
+        };
 
-        if (perfectTrackGpx) {
-            try {
-                const newTrail = Trail.from(trailTarget);
-                if (newTrail.expand) {
-                    newTrail.expand.waypoints_via_trail = [];
-                    newTrail.expand.summit_logs_via_trail = [];
-                }
-                const gpxFile = new File([perfectTrackGpx], `${trailTarget.name || "trail"}.gpx`, { type: "application/gpx+xml" });
-
-                finalTarget = await trails_create(newTrail, [], gpxFile);
-
-                if (!sources.some((s) => s.id === trailTarget.id)) {
-                    sources.push(trailTarget);
-                }
-            } catch (err) {
-                console.error("Failed to create new trail for perfect track", err);
-                show_toast({
-                    type: "error",
-                    icon: "close",
-                    text: err instanceof Error ? err.message : "Failed to create new trail",
-                });
-                return;
-            }
-        }
-
-        for (const sourceTrail of sources) {
-            if (sourceTrail.id === finalTarget.id) {
-                continue;
-            }
-
-            const mergeJob: Merge = {
-                trailTarget: finalTarget,
-                trailSource: sourceTrail,
-                progress: 0,
-                status: "enqueued",
-                settings,
-                function: async (target, source, mergeSettings, onProgress) => {
-                    if (!target.id || !source.id) {
-                        throw new Error($_("error-merging-trail"));
-                    }
-
-                    onProgress?.(0.2);
-                    await trail_merge(source.id, target.id, mergeSettings);
-                    onProgress?.(1);
-                },
-            };
-
-            mergeStore.enqueuedMerges.push(mergeJob);
-        }
+        mergeStore.enqueuedMerges.push(mergeJob);
 
         const completedBeforeRun = mergeStore.completedMerges.length;
         await processMergeQueue();
@@ -365,12 +328,10 @@
         ).length;
 
         if (successfulThisRun > 0) {
-            if (perfectTrackGpx) {
-                if (activeMergeGroup) {
-                    const next = { ...perfectTrackGpxByGroupId };
-                    delete next[activeMergeGroup.groupId];
-                    perfectTrackGpxByGroupId = next;
-                }
+            if (hasPerfectTrack && activeMergeGroup) {
+                const next = { ...perfectTrackGpxByGroupId };
+                delete next[activeMergeGroup.groupId];
+                perfectTrackGpxByGroupId = next;
             }
             await loadGroups();
         }
