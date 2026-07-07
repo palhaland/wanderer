@@ -284,3 +284,209 @@ func TestGeneratePerfectTrack(t *testing.T) {
 		}
 	}
 }
+
+func TestBulkMerge(t *testing.T) {
+	t.Setenv("ORIGIN", "http://localhost:8080")
+	app, err := tests.NewTestApp("../../../test-data/pb_data")
+	if err != nil {
+		t.Fatalf("Failed to initialize test app: %v", err)
+	}
+	defer app.Cleanup()
+
+	trailsCol, err := app.FindCollectionByNameOrId("trails")
+	if err != nil {
+		t.Fatalf("Failed to find trails collection: %v", err)
+	}
+
+	gpxContent1 := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test">
+  <trk>
+    <trkseg>
+      <trkpt lat="45.0" lon="10.0"><ele>100.0</ele></trkpt>
+      <trkpt lat="45.001" lon="10.001"><ele>110.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>`)
+
+	gpxContent2 := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test">
+  <trk>
+    <trkseg>
+      <trkpt lat="45.001" lon="10.001"><ele>110.0</ele></trkpt>
+      <trkpt lat="45.002" lon="10.002"><ele>120.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>`)
+
+	gpxContent3 := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="test">
+  <trk>
+    <trkseg>
+      <trkpt lat="45.002" lon="10.002"><ele>120.0</ele></trkpt>
+      <trkpt lat="45.003" lon="10.003"><ele>130.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>`)
+
+	var actorID string
+	var actor *core.Record
+	existingActors, err := app.FindRecordsByFilter("activitypub_actors", "1=1", "", 1, 0)
+	if err == nil && len(existingActors) > 0 {
+		actor = existingActors[0]
+		actorID = actor.Id
+	} else {
+		usersCol, err := app.FindCollectionByNameOrId("users")
+		if err != nil {
+			t.Fatalf("Failed to find users collection: %v", err)
+		}
+		user := core.NewRecord(usersCol)
+		user.Set("email", "test-bulk-merge@example.com")
+		user.Set("username", "testuser_bm")
+		user.Set("password", "password123")
+		user.Set("passwordConfirm", "password123")
+		if err := app.Save(user); err != nil {
+			t.Fatalf("Failed to create test user: %v", err)
+		}
+
+		actorCol, err := app.FindCollectionByNameOrId("activitypub_actors")
+		if err != nil {
+			t.Fatalf("Failed to find activitypub_actors collection: %v", err)
+		}
+		actor = core.NewRecord(actorCol)
+		actor.Set("username", "testuser_bm_actor")
+		actor.Set("user", user.Id)
+		if err := app.Save(actor); err != nil {
+			t.Fatalf("Failed to create activitypub_actor: %v", err)
+		}
+		actorID = actor.Id
+	}
+
+	trail1 := core.NewRecord(trailsCol)
+	trail1.Set("name", "Source Trail 1")
+	trail1.Set("author", actorID)
+	file1, err := filesystem.NewFileFromBytes(gpxContent1, "trail1.gpx")
+	if err != nil {
+		t.Fatalf("Failed to create file1: %v", err)
+	}
+	trail1.Set("gpx", file1)
+	if err := app.Save(trail1); err != nil {
+		t.Fatalf("Failed to save trail 1: %v", err)
+	}
+
+	trail2 := core.NewRecord(trailsCol)
+	trail2.Set("name", "Source Trail 2")
+	trail2.Set("author", actorID)
+	file2, err := filesystem.NewFileFromBytes(gpxContent2, "trail2.gpx")
+	if err != nil {
+		t.Fatalf("Failed to create file2: %v", err)
+	}
+	trail2.Set("gpx", file2)
+	if err := app.Save(trail2); err != nil {
+		t.Fatalf("Failed to save trail 2: %v", err)
+	}
+
+	targetTrail := core.NewRecord(trailsCol)
+	targetTrail.Set("name", "Target Trail")
+	targetTrail.Set("author", actorID)
+	targetTrail.Set("difficulty", "easy")
+	fileTarget, err := filesystem.NewFileFromBytes(gpxContent3, "target.gpx")
+	if err != nil {
+		t.Fatalf("Failed to create target file: %v", err)
+	}
+	targetTrail.Set("gpx", fileTarget)
+	if err := app.Save(targetTrail); err != nil {
+		t.Fatalf("Failed to save target trail: %v", err)
+	}
+
+	settings := MergeSettings{
+		SummitLog: true,
+		Photos:    true,
+		Comments:  true,
+		Delete:    true,
+		Tags:      true,
+		Likes:     true,
+	}
+
+	// 1. Test BulkMerge with generatePerfectTrack = true
+	newTrailID, err := BulkMerge(app, nil, nil, actor, []string{trail1.Id, trail2.Id}, targetTrail.Id, settings, true)
+	if err != nil {
+		t.Fatalf("BulkMerge with perfect track failed: %v", err)
+	}
+
+	if newTrailID == "" || newTrailID == targetTrail.Id {
+		t.Errorf("Expected new trail ID, got: %s", newTrailID)
+	}
+
+	newTrail, err := app.FindRecordById("trails", newTrailID)
+	if err != nil {
+		t.Fatalf("Failed to find new merged trail: %v", err)
+	}
+
+	if name := newTrail.GetString("name"); name != "Target Trail" {
+		t.Errorf("Expected copied name 'Target Trail', got '%s'", name)
+	}
+	if diff := newTrail.GetString("difficulty"); diff != "easy" {
+		t.Errorf("Expected copied difficulty 'easy', got '%s'", diff)
+	}
+	if newTrail.GetString("gpx") == "" {
+		t.Errorf("Expected GPX file to be attached to new trail")
+	}
+
+	// Verify sources and target are deleted (since settings.Delete is true)
+	_, err = app.FindRecordById("trails", trail1.Id)
+	if err == nil {
+		t.Errorf("Source trail 1 was not deleted")
+	}
+	_, err = app.FindRecordById("trails", trail2.Id)
+	if err == nil {
+		t.Errorf("Source trail 2 was not deleted")
+	}
+	_, err = app.FindRecordById("trails", targetTrail.Id)
+	if err == nil {
+		t.Errorf("Original target trail was not deleted")
+	}
+
+	// 2. Test BulkMerge with generatePerfectTrack = false
+	// Re-create trails for the second test run
+	trail3 := core.NewRecord(trailsCol)
+	trail3.Set("name", "Source Trail 3")
+	trail3.Set("author", actorID)
+	file3, err := filesystem.NewFileFromBytes(gpxContent1, "trail3.gpx")
+	if err != nil {
+		t.Fatalf("Failed to create file3: %v", err)
+	}
+	trail3.Set("gpx", file3)
+	if err := app.Save(trail3); err != nil {
+		t.Fatalf("Failed to save trail 3: %v", err)
+	}
+
+	targetTrail2 := core.NewRecord(trailsCol)
+	targetTrail2.Set("name", "Target Trail 2")
+	targetTrail2.Set("author", actorID)
+	fileTarget2, err := filesystem.NewFileFromBytes(gpxContent2, "target2.gpx")
+	if err != nil {
+		t.Fatalf("Failed to create target file 2: %v", err)
+	}
+	targetTrail2.Set("gpx", fileTarget2)
+	if err := app.Save(targetTrail2); err != nil {
+		t.Fatalf("Failed to save target trail 2: %v", err)
+	}
+
+	resTrailID, err := BulkMerge(app, nil, nil, actor, []string{trail3.Id}, targetTrail2.Id, settings, false)
+	if err != nil {
+		t.Fatalf("BulkMerge without perfect track failed: %v", err)
+	}
+
+	if resTrailID != targetTrail2.Id {
+		t.Errorf("Expected returned ID to be %s, got: %s", targetTrail2.Id, resTrailID)
+	}
+
+	_, err = app.FindRecordById("trails", trail3.Id)
+	if err == nil {
+		t.Errorf("Source trail 3 was not deleted")
+	}
+	_, err = app.FindRecordById("trails", targetTrail2.Id)
+	if err != nil {
+		t.Errorf("Original target trail 2 was deleted, but it should have survived as the merge target")
+	}
+}

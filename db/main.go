@@ -186,6 +186,7 @@ func registerRoutes(se *core.ServeEvent, client meilisearch.ServiceManager) {
 	se.Router.POST("/trail-merge/suggest", routes.TrailMergeSuggest)
 	se.Router.POST("/trail-merge/perfect-track", routes.TrailMergePerfectTrack)
 	se.Router.POST("/trail-merge", routes.TrailMerge(client))
+	se.Router.POST("/trail-merge/bulk", routes.TrailMergeBulk(client))
 
 	se.Router.GET("/search/token", routes.SearchToken(client))
 

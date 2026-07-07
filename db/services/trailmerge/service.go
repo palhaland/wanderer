@@ -257,6 +257,224 @@ func Merge(app core.App, client meilisearch.ServiceManager, ctx context.Context,
 	return nil
 }
 
+func BulkMerge(app core.App, client meilisearch.ServiceManager, ctx context.Context, actor *core.Record, sourceTrailIDs []string, targetTrailID string, settings MergeSettings, generatePerfectTrack bool) (string, error) {
+	if actor == nil {
+		return "", ErrMissingActor
+	}
+	if targetTrailID == "" {
+		return "", ErrMissingTrailID
+	}
+	for _, sid := range sourceTrailIDs {
+		if sid == targetTrailID {
+			return "", ErrSameSourceAndTargetTrail
+		}
+	}
+
+	var finalTrailID string
+	var effectsList []mergeSideEffects
+
+	err := app.RunInTransaction(func(txApp core.App) error {
+		if generatePerfectTrack {
+			// Combine source trails and target trail
+			allIDs := append([]string{}, sourceTrailIDs...)
+			allIDs = append(allIDs, targetTrailID)
+
+			perfectGPX, err := GeneratePerfectTrack(txApp, allIDs)
+			if err != nil {
+				return fmt.Errorf("generate perfect track: %w", err)
+			}
+
+			xmlBytes, err := perfectGPX.ToXml(gpx.ToXmlParams{
+				Version: "1.1",
+				Indent:  true,
+			})
+			if err != nil {
+				return fmt.Errorf("marshal perfect GPX to XML: %w", err)
+			}
+
+			targetTrail, err := txApp.FindRecordById("trails", targetTrailID)
+			if err != nil {
+				return fmt.Errorf("find target trail: %w", err)
+			}
+
+			collection, err := txApp.FindCollectionByNameOrId("trails")
+			if err != nil {
+				return err
+			}
+
+			newTrail := core.NewRecord(collection)
+			// Copy metadata fields from target trail
+			newTrail.Load(map[string]any{
+				"name":        targetTrail.GetString("name"),
+				"description": targetTrail.GetString("description"),
+				"difficulty":  targetTrail.GetString("difficulty"),
+				"category":    targetTrail.GetString("category"),
+				"subcategory": targetTrail.GetString("subcategory"),
+				"public":      targetTrail.GetBool("public"),
+				"tags":        targetTrail.GetStringSlice("tags"),
+				"author":      targetTrail.GetString("author"),
+			})
+
+			// Convert GPX XML bytes to a pocketbase file
+			gpxFile, err := filesystem.NewFileFromBytes(xmlBytes, "perfect_track.gpx")
+			if err != nil {
+				return fmt.Errorf("create GPX file from bytes: %w", err)
+			}
+			newTrail.Set("gpx", gpxFile)
+
+			// Temporarily save to generate record ID and base path for file storage
+			if err := txApp.Save(newTrail); err != nil {
+				return fmt.Errorf("save new trail: %w", err)
+			}
+
+			// Extract geometry details
+			uphillDownhill := perfectGPX.UphillDownhill()
+			movingData := perfectGPX.MovingData()
+
+			newTrail.Set("distance", perfectGPX.Length2D())
+			newTrail.Set("elevation_gain", uphillDownhill.Uphill)
+			newTrail.Set("elevation_loss", uphillDownhill.Downhill)
+			newTrail.Set("duration", movingData.MovingTime+movingData.StoppedTime)
+
+			var startLat, startLon float64
+			hasPoints := false
+			for _, trk := range perfectGPX.Tracks {
+				for _, seg := range trk.Segments {
+					if len(seg.Points) > 0 {
+						startLat = seg.Points[0].Latitude
+						startLon = seg.Points[0].Longitude
+						hasPoints = true
+						break
+					}
+				}
+				if hasPoints {
+					break
+				}
+			}
+
+			if hasPoints {
+				newTrail.Set("lat", startLat)
+				newTrail.Set("lon", startLon)
+			}
+
+			// Compute & save remaining geometry fields (bounding box, polyline, diagonal) using util.SavePolyline logic
+			geometry, err := util.ComputeTrailGeometry(txApp, newTrail)
+			if err == nil {
+				newTrail.Set("polyline", geometry.Polyline)
+				newTrail.Set("min_lat", geometry.MinLat)
+				newTrail.Set("max_lat", geometry.MaxLat)
+				newTrail.Set("min_lon", geometry.MinLon)
+				newTrail.Set("max_lon", geometry.MaxLon)
+				newTrail.Set("bounding_box_diagonal", geometry.BoundingBoxDiagonal)
+			}
+
+			if err := txApp.Save(newTrail); err != nil {
+				return fmt.Errorf("save new trail with geometry: %w", err)
+			}
+
+			// Merge all source trails and the original target trail into the newly created trail
+			allSourceIDs := append([]string{}, sourceTrailIDs...)
+			allSourceIDs = append(allSourceIDs, targetTrailID)
+
+			for _, srcID := range allSourceIDs {
+				srcRecord, err := txApp.FindRecordById("trails", srcID)
+				if err != nil {
+					return fmt.Errorf("find source record %s: %w", srcID, err)
+				}
+
+				mergeCtx := mergeContext{
+					App:      txApp,
+					Client:   client,
+					Actor:    actor,
+					ActorID:  actor.Id,
+					Target:   newTrail,
+					Source:   srcRecord,
+					Settings: settings,
+				}
+
+				effects, err := mergeTrailIntoTarget(mergeCtx)
+				if err != nil {
+					return fmt.Errorf("merge trail %s into new trail: %w", srcID, err)
+				}
+				effectsList = append(effectsList, effects)
+			}
+
+			finalTrailID = newTrail.Id
+		} else {
+			// Sequentially merge each source trail into the target trail
+			targetRecord, err := txApp.FindRecordById("trails", targetTrailID)
+			if err != nil {
+				return fmt.Errorf("find target record: %w", err)
+			}
+
+			for _, srcID := range sourceTrailIDs {
+				srcRecord, err := txApp.FindRecordById("trails", srcID)
+				if err != nil {
+					return fmt.Errorf("find source record %s: %w", srcID, err)
+				}
+
+				mergeCtx := mergeContext{
+					App:      txApp,
+					Client:   client,
+					Actor:    actor,
+					ActorID:  actor.Id,
+					Target:   targetRecord,
+					Source:   srcRecord,
+					Settings: settings,
+				}
+
+				effects, err := mergeTrailIntoTarget(mergeCtx)
+				if err != nil {
+					return fmt.Errorf("merge trail %s into target: %w", srcID, err)
+				}
+				effectsList = append(effectsList, effects)
+			}
+
+			finalTrailID = targetTrailID
+		}
+
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// Post-transaction indexing and federation notifications
+	finalTrailRecord, err := app.FindRecordById("trails", finalTrailID)
+	if err != nil {
+		return "", err
+	}
+	if client != nil {
+		if err := util.IndexTrails(app, []*core.Record{finalTrailRecord}, client); err != nil {
+			return "", err
+		}
+	}
+
+	for _, effects := range effectsList {
+		for _, summitLogID := range effects.CreatedSummitLogIDs {
+			record, err := app.FindRecordById("summit_logs", summitLogID)
+			if err != nil {
+				return "", err
+			}
+			if err := federation.CreateSummitLogActivity(app, ctx, record, pub.CreateType); err != nil {
+				return "", err
+			}
+		}
+
+		for _, commentID := range effects.CreatedCommentIDs {
+			record, err := app.FindRecordById("comments", commentID)
+			if err != nil {
+				return "", err
+			}
+			if err := federation.CreateCommentActivity(app, ctx, record, pub.CreateType); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	return finalTrailID, nil
+}
+
 func GeneratePerfectTrack(app core.App, trailIDs []string) (*gpx.GPX, error) {
 	allPoints := make([][]util.TrailPoint, 0, len(trailIDs))
 	for _, id := range trailIDs {
